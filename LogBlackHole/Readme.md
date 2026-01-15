@@ -1,12 +1,14 @@
 # Logging Black Hole
-The pod sends up a continous stream of log messages in clear text to their backend.
+The pod sends up a continuous stream of log messages in clear text to their backend.
 If the backend is unreachable, it will buffer messages on its sd card.  I'm not sure what happens when it fills up.
 To avoid this, we create a fake logging server that'll accept the log messages.  We could save the messages, but right
 now we just toss them.
 
+Ideally log uploading is disabled entirely in firmware, but this will do for now.
+
 ## Protocol Specification
-I'm unsure if this is a some obscure standardized format or something custom.  
-This also isn't a full specification, just what I've reverse engineered so far and the minimum
+It's unsure if this is a some obscure standardized format or something custom.  
+This also isn't a full specification, just what has reverse engineered so far and the minimum
 that's needed for the pod to handshake and send messages so the card doesn't fill up.
 
 
@@ -28,7 +30,7 @@ that's needed for the pod to handshake and send messages so the card doesn't fil
 
 ### Batch Start
 1. when pod is ready to upload a unit of log messages, (called a batch), it sends the following payload 
-  * the 4 bytes a 0x0a - 0x0d is the batch id
+   * the 4 bytes a 0x0a - 0x0d is the batch id
 ```
 0000   a4 65 70 72 6f 74 6f 63 72 61 77 64 70 61 72 74   .eprotocrawdpart
 0010   65 62 61 74 63 68 62 69 64 1a 00 01 02 03 66 73   ebatchbid....>fs
@@ -49,5 +51,5 @@ No work has been done to decode the header fields.
 The pod indicates either the end of a file, or maybe a reset by sending a single `0xFF` payload
 
 ## Other Notes
-* the reversed protocol implementation appears to be subtily wrong.  After the sdcard buffered data is sent, the continuous streaming seems to include a lot of padding that isn't present on wireshark dumps of the traffic with official servers.  Not sure why. This has the effect of amplifying the amount of bytes sent.
+* the reversed protocol implementation appears to be subtly wrong.  After the sdcard buffered data is sent, the continuous streaming seems to include a lot of padding that isn't present on wireshark dumps of the traffic with official servers.  Not sure why. This has the effect of amplifying the amount of bytes sent.
 * Also looking at wireshark dumps, there appears to be cases where the handshake and batch start messages are skipped entirely.  Again, not sure why.

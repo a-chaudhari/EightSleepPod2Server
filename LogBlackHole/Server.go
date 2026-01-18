@@ -43,8 +43,8 @@ func (b LogBlackHole) handleConnection(c net.Conn) {
 			return
 		}
 		data := buf[:n]
-		fmt.Printf("Received from %s: %s", c.RemoteAddr().String(), string(data))
-		fmt.Printf("Length: %s\n", len(data))
+		//fmt.Printf("Received from %s: %s", c.RemoteAddr().String(), string(data))
+		//fmt.Printf("Length: %s\n", len(data))
 		stringVersion := string(data)
 
 		// can either be a handshake, a file start header, or file end header
@@ -72,7 +72,7 @@ func (b LogBlackHole) handleConnection(c net.Conn) {
 			// this is end of file
 			println("Received end of file packet")
 		} else {
-			fmt.Println("Received data of len:", len(data))
+			//fmt.Println("Received data of len:", len(data))
 		}
 	}
 }

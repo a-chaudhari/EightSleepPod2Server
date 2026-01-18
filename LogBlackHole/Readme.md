@@ -37,7 +37,7 @@ that's needed for the pod to handshake and send messages so the card doesn't fil
 0020   74 72 65 61 6d 5f                                 tream_
 ```
 2. server responds with the following payload, inserting the same batch id at the end
-    * the 4 bytes at 0x1a - 0x0d is the batch id
+    * the 4 bytes at 0x1a - 0x1d is the batch id
 ```
 0000   a3 65 70 72 6f 74 6f 63 72 61 77 64 70 61 72 74   .eprotocrawdpart
 0010   65 62 61 74 63 68 62 69 64 1a 00 01 02 03         ebatchbid.....

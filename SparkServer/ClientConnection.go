@@ -60,8 +60,6 @@ func (c *ClientConnection) HandleConnection() {
 		// process each msg
 		for _, msg := range messages {
 			fmt.Printf("Processing message: %x\n", msg)
-			// Here you would add code to handle each decrypted message
-			fmt.Printf("Message: %x\n", msg)
 			coapmsg := pool.NewMessage(context.Background())
 			_, err := coapmsg.UnmarshalWithDecoder(coder.DefaultCoder, msg)
 			println("CoAP Message:", coapmsg.String())
@@ -109,6 +107,8 @@ func (c *ClientConnection) HandleConnection() {
 					println("Error handling timestamp:", err)
 					return
 				}
+			case "/E/tracing/rat":
+				// noop
 			default:
 				println("Unhandled message:", url)
 			}

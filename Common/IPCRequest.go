@@ -10,17 +10,18 @@ type IPCRequest struct {
 }
 
 type BedStatus struct {
+	HeatTime        int `json:"heat_time"`
+	HeatLevel       int `json:"heat_level"`
+	TargetHeatLevel int `json:"target_heat_level"`
+}
+
+type PodStatus struct {
 	Priming    bool `json:"priming"`
 	WaterLevel bool `json:"water_level"`
 	Updating   bool `json:"updating"`
 
-	HeatLevelLeft       int `json:"heat_level_left"`
-	TargetHeatLevelLeft int `json:"target_heat_level_left"`
-	HeatTimeLeft        int `json:"heat_time_left"`
-
-	HeatLevelRight       int `json:"heat_level_right"`
-	TargetHeatLevelRight int `json:"target_heat_level_right"`
-	HeatTimeRight        int `json:"heat_time_right"`
+	LeftBed  BedStatus `json:"left_side"`
+	RightBed BedStatus `json:"right_side"`
 
 	SensorLabel    string `json:"sensor_label"`
 	Ssid           string `json:"ssid"`

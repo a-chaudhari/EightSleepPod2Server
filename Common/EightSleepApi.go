@@ -21,8 +21,11 @@ type bedStatusField struct {
 	dest   string
 }
 
-func GetStatus(c *SparkServer.ClientConnection) (BedStatus, error) {
-	status := BedStatus{}
+func GetStatus(c *SparkServer.ClientConnection) (PodStatus, error) {
+	status := PodStatus{
+		LeftBed:  BedStatus{},
+		RightBed: BedStatus{},
+	}
 
 	heatLevelLeft := getData(c, "heatLevelL")
 
@@ -30,7 +33,7 @@ func GetStatus(c *SparkServer.ClientConnection) (BedStatus, error) {
 	if err != nil {
 		println("Error parsing heat level left:", err)
 	} else {
-		status.HeatLevelLeft = hlL
+		status.LeftBed.HeatLevel = hlL
 	}
 
 	heatLevelRight := getData(c, "heatLevelR")
@@ -38,7 +41,7 @@ func GetStatus(c *SparkServer.ClientConnection) (BedStatus, error) {
 	if err != nil {
 		println("Error parsing heat level right:", err)
 	} else {
-		status.HeatLevelRight = hlR
+		status.RightBed.HeatLevel = hlR
 	}
 
 	targetHeatLevelLeft := getData(c, "tgHeatLevelL")
@@ -46,7 +49,7 @@ func GetStatus(c *SparkServer.ClientConnection) (BedStatus, error) {
 	if err != nil {
 		println("Error parsing target heat level left:", err)
 	} else {
-		status.TargetHeatLevelLeft = thlL
+		status.LeftBed.TargetHeatLevel = thlL
 	}
 
 	targetHeatLevelRight := getData(c, "tgHeatLevelR")
@@ -54,7 +57,7 @@ func GetStatus(c *SparkServer.ClientConnection) (BedStatus, error) {
 	if err != nil {
 		println("Error parsing target heat level right:", err)
 	} else {
-		status.TargetHeatLevelRight = thlR
+		status.RightBed.TargetHeatLevel = thlR
 	}
 
 	heatTimeLeft := getData(c, "heatTimeL")
@@ -62,14 +65,14 @@ func GetStatus(c *SparkServer.ClientConnection) (BedStatus, error) {
 	if err != nil {
 		println("Error parsing heat time left:", err)
 	} else {
-		status.HeatTimeLeft = htL
+		status.LeftBed.HeatTime = htL
 	}
 	heatTimeRight := getData(c, "heatTimeR")
 	htR, err := strconv.Atoi(string(heatTimeRight[:]))
 	if err != nil {
 		println("Error parsing heat time right:", err)
 	} else {
-		status.HeatTimeRight = htR
+		status.RightBed.HeatTime = htR
 	}
 
 	priming := getData(c, "priming")
@@ -93,25 +96,25 @@ func GetStatus(c *SparkServer.ClientConnection) (BedStatus, error) {
 	}
 
 	sensorLabel := getData(c, "sensorLabel")
-	status.SensorLabel = string(sensorLabel[:])
+	status.SensorLabel = unwrapQuotes(string(sensorLabel[:]))
 
 	ssid := getData(c, "ssid")
-	status.Ssid = string(ssid[:])
+	status.Ssid = unwrapQuotes(string(ssid[:]))
 
 	hubInfo := getData(c, "hubInfo")
-	status.HubInfo = string(hubInfo[:])
+	status.HubInfo = unwrapQuotes(string(hubInfo[:]))
 
 	macAddress := getData(c, "macAddr")
-	status.MacAddress = string(macAddress[:])
+	status.MacAddress = unwrapQuotes(string(macAddress[:]))
 
 	ipAddress := getData(c, "ipaddr")
-	status.IpAddress = string(ipAddress[:])
+	status.IpAddress = unwrapQuotes(string(ipAddress[:]))
 
 	signalStrength := getData(c, "sigstr")
-	status.SignalStrength = string(signalStrength[:])
+	status.SignalStrength = unwrapQuotes(string(signalStrength[:]))
 
 	settings := getData(c, "settings")
-	status.Settings = string(settings[:])
+	status.Settings = unwrapQuotes(string(settings[:]))
 
 	return status, nil
 }
@@ -126,4 +129,15 @@ func getData(c *SparkServer.ClientConnection, verb string) []byte {
 	c.RequestPipe <- podReq
 	<-podReq.Ready
 	return podReq.Response
+}
+
+func unwrapQuotes(s string) string {
+	if len(s) > 0 && s[0] == '"' {
+		s = s[1:]
+	}
+	if len(s) > 0 && s[len(s)-1] == '"' {
+		s = s[:len(s)-1]
+	}
+
+	return s
 }

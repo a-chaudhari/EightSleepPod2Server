@@ -11,10 +11,17 @@ import (
 )
 
 type Server struct {
-	serverPrivateKey *rsa.PrivateKey
+	serverPrivateKey    *rsa.PrivateKey
+	ConnectionStatePipe chan *ConnectionNotification
 }
 
-func NewServer(publicKeyPath string) *Server {
+type ConnectionNotification struct {
+	DeviceId    string
+	IsConnected bool
+	Conn        *ClientConnection
+}
+
+func NewServer(publicKeyPath string, newConnPipe chan *ConnectionNotification) *Server {
 	dat, err := os.ReadFile(publicKeyPath)
 	if err != nil {
 		panic(err)
@@ -31,7 +38,8 @@ func NewServer(publicKeyPath string) *Server {
 	}
 
 	return &Server{
-		serverPrivateKey: cert.(*rsa.PrivateKey),
+		serverPrivateKey:    cert.(*rsa.PrivateKey),
+		ConnectionStatePipe: newConnPipe,
 	}
 }
 
@@ -61,6 +69,6 @@ func (s *Server) handleConnection(c net.Conn) {
 		_ = c.Close()
 	}(c)
 
-	client := NewClientConnection(&c, s.serverPrivateKey)
+	client := NewClientConnection(&c, s.serverPrivateKey, s.ConnectionStatePipe)
 	client.HandleConnection()
 }

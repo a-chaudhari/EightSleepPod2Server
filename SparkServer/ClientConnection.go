@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"sync"
 	"time"
 
 	"github.com/plgd-dev/go-coap/v3/message"
@@ -26,10 +27,15 @@ type ClientConnection struct {
 	outgoingIv       [16]byte
 	deviceId         [12]byte
 	messageId        int32
+	currentRequest   *PodRequest
+	RequestPipe      chan *PodRequest
+	sendMutex        sync.Mutex
+	statePipe        chan *ConnectionNotification
 }
 
-func NewClientConnection(conn *net.Conn, serverPublicKey *rsa.PrivateKey) *ClientConnection {
-	return &ClientConnection{conn: conn, serverPrivateKey: serverPublicKey, messageId: 0}
+func NewClientConnection(conn *net.Conn, serverPublicKey *rsa.PrivateKey, statePipe chan *ConnectionNotification) *ClientConnection {
+	return &ClientConnection{conn: conn, serverPrivateKey: serverPublicKey, messageId: 0,
+		RequestPipe: make(chan *PodRequest, 100), statePipe: statePipe}
 }
 
 func (c *ClientConnection) HandleConnection() {
@@ -39,7 +45,15 @@ func (c *ClientConnection) HandleConnection() {
 		return
 	}
 
-	println("Handshake successful, ready for further communication")
+	println("Handshake successful, Ready for further communication")
+	c.statePipe <- &ConnectionNotification{
+		DeviceId:    fmt.Sprintf("%x", c.deviceId),
+		IsConnected: true,
+		Conn:        c,
+	}
+	go c.podRequestHandler()
+
+	defer println("exiting client connection handler for", (*c.conn).RemoteAddr().String())
 
 	buf := make([]byte, 2048)
 	for {
@@ -80,13 +94,31 @@ func (c *ClientConnection) HandleConnection() {
 				}
 				continue
 			}
+			if coapmsg.Type() == message.Acknowledgement {
+				// this is a Response to an earlier request
+				if c.currentRequest != nil && coapmsg.MessageID() == c.currentRequest.message.MessageID {
+					println("Received Response for current pod request")
+					body, err := coapmsg.ReadBody()
+					if err != nil {
+						println("Error reading body of pod Response:", err)
+						continue
+					}
+					cr := c.currentRequest
+					c.currentRequest = nil
+					cr.SetResponse(body)
+					continue
+				} else {
+					println("Received acknowledgement for unknown request, ignoring")
+					continue
+				}
+			}
 
 			switch url {
 			case "/h":
 				println("H received")
 				err := c.handleHello()
 				if err != nil {
-					println("error when sending hello response", err)
+					println("error when sending hello Response", err)
 					return
 				}
 			case "/E/spark/device/claim/code":
@@ -162,11 +194,11 @@ func (c *ClientConnection) performHandshake() error {
 		return err
 	}
 
-	// wait for response payload
+	// wait for Response payload
 	buf := make([]byte, 1024)
 	n, err := (*c.conn).Read(buf)
 	if err != nil {
-		fmt.Println("Error reading response:", err)
+		fmt.Println("Error reading Response:", err)
 		return err
 	}
 	responsePayload := buf[:n]
@@ -193,7 +225,7 @@ func (c *ClientConnection) performHandshake() error {
 	}
 	println("nonce matched")
 
-	// now need to create handshake response
+	// now need to create handshake Response
 	keybuffer, err := createNonce()
 	if err != nil {
 		println("Error creating key block:", err)
@@ -227,7 +259,7 @@ func (c *ClientConnection) performHandshake() error {
 
 	_, err = (*c.conn).Write(bigBlob)
 	if err != nil {
-		fmt.Println("Error writing response:", err)
+		fmt.Println("Error writing Response:", err)
 		return err
 	}
 
@@ -264,15 +296,36 @@ func (c *ClientConnection) encrypt(plaintext []byte) ([]byte, error) {
 	return ciphertext, nil
 }
 
-func (c *ClientConnection) sendMessaage(msg message.Message) error {
+func intToMinBytes(n uint32) []byte {
+	if n == 0 {
+		return []byte{0}
+	}
+
+	buf := make([]byte, 4)
+	binary.BigEndian.PutUint32(buf, n)
+
+	// Find first non-zero byte
+	for i, b := range buf {
+		if b != 0 {
+			return buf[i:]
+		}
+	}
+	return buf
+}
+
+func (c *ClientConnection) sendMessaage(msg *message.Message) error {
+	c.sendMutex.Lock()
+	defer c.sendMutex.Unlock()
+
 	response := pool.Message{}
 	if msg.Type != message.Acknowledgement {
 		msg.MessageID = c.messageId
-		msg.Token = make(message.Token, c.messageId)
+		// the pod doesn't seem to like extra zeros in the token
+		msg.Token = intToMinBytes(uint32(c.messageId))
 		c.messageId++
 	}
 
-	response.SetMessage(msg)
+	response.SetMessage(*msg)
 	output, err := response.MarshalWithEncoder(coder.DefaultCoder)
 	if err != nil {
 		return err
@@ -304,7 +357,7 @@ func (c *ClientConnection) handlePingLike(incoming *pool.Message) error {
 		Code:      codes.Empty,
 		Token:     incoming.Token(),
 	}
-	return c.sendMessaage(msg)
+	return c.sendMessaage(&msg)
 }
 
 func (c *ClientConnection) handleHello() error {
@@ -314,7 +367,7 @@ func (c *ClientConnection) handleHello() error {
 		Payload: nil,
 		Type:    message.NonConfirmable,
 	}
-	return c.sendMessaage(msg)
+	return c.sendMessaage(&msg)
 }
 
 func (c *ClientConnection) handleESpark(incoming *pool.Message) error {
@@ -325,7 +378,7 @@ func (c *ClientConnection) handleESpark(incoming *pool.Message) error {
 		Code:      codes.Empty,
 		Token:     incoming.Token(),
 	}
-	return c.sendMessaage(msg)
+	return c.sendMessaage(&msg)
 }
 
 func (c *ClientConnection) handleTimestamp(incoming *pool.Message) error {
@@ -340,5 +393,22 @@ func (c *ClientConnection) handleTimestamp(incoming *pool.Message) error {
 		Token:     incoming.Token(),
 		Payload:   nowbytes,
 	}
-	return c.sendMessaage(msg)
+	return c.sendMessaage(&msg)
+}
+
+func (c *ClientConnection) podRequestHandler() {
+	for {
+		select {
+		case req := <-c.RequestPipe:
+			println("Received pod request")
+			c.currentRequest = req
+			err := c.sendMessaage(req.message)
+			if err != nil {
+				println("Error sending pod request Response:", err)
+				continue
+			}
+			<-req.Ready // blocks until Response is Ready
+			println("Pod request Response Ready")
+		}
+	}
 }

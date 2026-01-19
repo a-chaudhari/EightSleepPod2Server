@@ -116,10 +116,5 @@ func createHmacSignature(payload []byte, hmacKey []byte, signingKey *rsa.Private
 	}
 	fmt.Printf("[DEBUG] Signature: %d bytes\n", len(signature))
 
-	// Combine: 128 bytes ciphertext + 256 bytes signature
-	//response := make([]byte, len(hmacKey)+len(signature))
-	//copy(response, hmacKey)
-	//copy(response[len(hmacKey):], signature)
-
 	return signature, nil
 }

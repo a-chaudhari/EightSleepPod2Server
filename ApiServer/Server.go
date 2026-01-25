@@ -46,9 +46,7 @@ func (s *ApiServer) statusHandler(c *gin.Context) {
 		return
 	}
 
-	c.JSON(200, gin.H{
-		"status": res,
-	})
+	c.JSON(200, res)
 }
 
 func (s *ApiServer) listAllDevices(c *gin.Context) {

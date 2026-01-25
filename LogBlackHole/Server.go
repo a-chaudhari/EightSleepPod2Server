@@ -5,6 +5,8 @@ import (
 	"log"
 	"net"
 	"strings"
+
+	"github.com/fxamacker/cbor/v2"
 )
 
 type LogBlackHole struct{}
@@ -35,7 +37,7 @@ func (b LogBlackHole) handleConnection(c net.Conn) {
 		_ = c.Close()
 	}(c)
 
-	buf := make([]byte, 1024)
+	buf := make([]byte, 4096)
 	for {
 		n, err := c.Read(buf)
 		if err != nil {
@@ -49,18 +51,37 @@ func (b LogBlackHole) handleConnection(c net.Conn) {
 
 		// can either be a handshake, a file start header, or file end header
 		if len(data) == 64 && strings.Contains(stringVersion, "eprotocrawdpartgsessioncdevx") {
-			// this is a handshake, we can send a fixed response
-			handshakeResponse := b.getHandshakeResponse()
+			var req WelcomeMessage
+			err := cbor.Unmarshal(data, &req)
+			res := WelcomeResponse{
+				Proto: "raw",
+				Part:  "session",
+			}
+			handshakeResponse, err := cbor.Marshal(res)
+			// print hex response
+			fmt.Printf("%x\n", handshakeResponse)
+			if err != nil {
+				fmt.Println("Error marshalling handshake response:", err)
+				return
+			}
 			_, err = c.Write(handshakeResponse)
 			if err != nil {
 				fmt.Println("Error sending handshake response:", err)
 				return
 			}
-			deviceId := data[0x1e:0x36]
+			deviceId := req.Dev
 			fmt.Printf("Device Connected, ID: %s\n", deviceId)
-			//fmt.Printf("Sent handshake response to %s: %x\n", c.RemoteAddr().String(), handshakeResponse)
 		} else if len(data) == 38 && strings.Contains(stringVersion, "eprotocrawdpartebatchbid") {
 			// this is the start of a new file, need to get the file id and return it in the response
+			//var req BatchStart
+			//decoder := cbor.NewDecoder(bytes.NewReader(data))
+			//
+			//err := decoder.Decode(&req)
+			//err := cbor.Unmarshal(data, &req)
+			//if err != nil {
+			//	fmt.Println("Error unmarshalling batch start:", err)
+			//	continue
+			//}
 			batchId := data[0x1a:0x1e]
 			fmt.Printf("Batch Start ID: %x\n", batchId)
 			response := b.getStartFileResponse(batchId)
@@ -75,12 +96,6 @@ func (b LogBlackHole) handleConnection(c net.Conn) {
 			//fmt.Println("Received data of len:", len(data))
 		}
 	}
-}
-
-func (b LogBlackHole) getHandshakeResponse() []byte {
-	// fixed literal response
-	return []byte{0xa2, 0x65, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x63, 0x72, 0x61, 0x77, 0x64, 0x70, 0x61, 0x72, 0x74, 0x67,
-		0x73, 0x65, 0x73, 0x73, 0x69, 0x6f, 0x6e}
 }
 
 func (b LogBlackHole) getStartFileResponse(batchId []byte) []byte {

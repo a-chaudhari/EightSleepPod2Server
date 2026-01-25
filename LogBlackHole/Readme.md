@@ -1,15 +1,13 @@
 # Logging Black Hole
 The pod sends up a continuous stream of log messages in clear text to their backend.
 If the backend is unreachable, it will buffer messages on its sd card.  I'm not sure what happens when it fills up.
-To avoid this, we create a fake logging server that'll accept the log messages.  We could save the messages, but right
+To avoid this, we create our own logging server that'll accept the log messages.  We could save the messages, but right
 now we just toss them.
 
-Ideally log uploading is disabled entirely in firmware, but this will do for now.
+We shouldn't disable logging entirely, as I think it's scrapped for sleep analysis, presence detection, and other features.
 
 ## Protocol Specification
-It's unsure if this is a some obscure standardized format or something custom.  
-This also isn't a full specification, just what has reverse engineered so far and the minimum
-that's needed for the pod to handshake and send messages so the card doesn't fill up.
+The protocol is cbor.  which is a compact version of json.  
 
 
 

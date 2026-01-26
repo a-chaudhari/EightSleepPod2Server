@@ -1,8 +1,10 @@
 package SparkServer
 
 import (
+	"encoding/hex"
 	"strconv"
 
+	"github.com/fxamacker/cbor/v2"
 	"github.com/plgd-dev/go-coap/v3/message"
 	"github.com/plgd-dev/go-coap/v3/message/codes"
 )
@@ -190,4 +192,46 @@ func (c *PodConnection) SetValue(path string, value string) {
 	c.RequestPipe <- podReq
 	<-podReq.Ready
 	println("done setting", path, "to", value)
+}
+
+type AlarmParams struct {
+	Intensity int    `cbor:"pl"`
+	Duration  int    `cbor:"du"`
+	Time      uint64 `cbor:"tt"`
+	Pattern   string `cbor:"pi"`
+}
+
+func (c *PodConnection) SetAlarm(side BedSide, input string) {
+	// need to verify the pattern field, pod 2 has double or single, other versions have double/rise
+	// so we need to swap any "rise" to "single" or it'll error out
+	data, err := hex.DecodeString(input)
+	if err != nil {
+		println("Error decoding alarm params hex:", err)
+		return
+	}
+	var alarmParams AlarmParams
+	err = cbor.Unmarshal(data, &alarmParams)
+	if err != nil {
+		println("Error unmarshalling alarm params:", err)
+		return
+	}
+
+	if alarmParams.Pattern == "rise" {
+		alarmParams.Pattern = "single"
+	}
+
+	marshalled, err := cbor.Marshal(alarmParams)
+	if err != nil {
+		println("Error marshalling alarm params:", err)
+		return
+	}
+
+	path := "alarmL"
+	if side == BedSideRight {
+		path = "alarmR"
+	}
+
+	hexStr := hex.EncodeToString(marshalled)
+
+	c.SetValue(path, hexStr)
 }

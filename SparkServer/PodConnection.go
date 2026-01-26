@@ -263,6 +263,18 @@ func (c *PodConnection) connectToUnixSocket() {
 			c.SetLevel(arg, BedSideRight)
 			_, _ = socket.Write([]byte("ok\n\n"))
 
+		case FrankenCmdPrime:
+			c.SetValue("prime", "true")
+			_, _ = socket.Write([]byte("ok\n\n"))
+
+		case FrankenCmdAlarmLeft:
+			c.SetAlarm(BedSideLeft, parts[1])
+			_, _ = socket.Write([]byte("ok\n\n"))
+
+		case FrankenCmdAlarmRight:
+			c.SetAlarm(BedSideRight, parts[1])
+			_, _ = socket.Write([]byte("ok\n\n"))
+
 		default:
 			println("Unhandled FrankenCommand from unix socket:", intVersion)
 		}

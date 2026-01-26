@@ -1,27 +1,36 @@
-package Common
+package SparkServer
 
 import (
-	"EightSleepServer/SparkServer"
 	"strconv"
 
 	"github.com/plgd-dev/go-coap/v3/message"
 	"github.com/plgd-dev/go-coap/v3/message/codes"
 )
 
-type parseMethod int
-
-const (
-	parseMethodInt parseMethod = iota
-	parseMethodFloat
-)
-
-type bedStatusField struct {
-	verb   string
-	method parseMethod
-	dest   string
+type BedStatus struct {
+	HeatTime        int `json:"heat_time"`
+	HeatLevel       int `json:"heat_level"`
+	TargetHeatLevel int `json:"target_heat_level"`
 }
 
-func GetStatus(c *SparkServer.ClientConnection) (PodStatus, error) {
+type PodStatus struct {
+	Priming    bool `json:"priming"`
+	WaterLevel bool `json:"water_level"`
+	Updating   bool `json:"updating"`
+
+	LeftBed  BedStatus `json:"left_side"`
+	RightBed BedStatus `json:"right_side"`
+
+	SensorLabel    string `json:"sensor_label"`
+	Ssid           string `json:"ssid"`
+	HubInfo        string `json:"hub_info"`
+	MacAddress     string `json:"mac_address"`
+	IpAddress      string `json:"ip_address"`
+	SignalStrength string `json:"signal_strength"`
+	Settings       string `json:"settings"`
+}
+
+func GetStatus(c *ClientConnection) (PodStatus, error) {
 	status := PodStatus{
 		LeftBed:  BedStatus{},
 		RightBed: BedStatus{},
@@ -119,13 +128,13 @@ func GetStatus(c *SparkServer.ClientConnection) (PodStatus, error) {
 	return status, nil
 }
 
-func getData(c *SparkServer.ClientConnection, verb string) []byte {
+func getData(c *ClientConnection, verb string) []byte {
 	msg := message.Message{
 		Options: message.Options{{ID: message.URIPath, Value: []byte("v")}, {ID: message.URIPath, Value: []byte(verb)}},
 		Code:    codes.GET,
 		Type:    message.Confirmable,
 	}
-	podReq := SparkServer.NewPodRequest(&msg)
+	podReq := NewPodRequest(&msg)
 	c.RequestPipe <- podReq
 	<-podReq.Ready
 	return podReq.Response

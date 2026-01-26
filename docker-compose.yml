@@ -1,0 +1,34 @@
+services:
+  freesleep:
+    build:
+      context: .
+      dockerfile: FreeSleep.Dockerfile
+    container_name: FreeSleep
+    ports:
+        - "3000:3000"
+    volumes:
+      - ./free-sleep-data:/persistent/free-sleep-data
+      - socket:/deviceinfo/
+    command:
+      - npm
+      - start
+
+  podtwo:
+    build:
+      context: .
+      dockerfile: ./Pod2.Dockerfile
+    container_name: PodTwoInterface
+    ports:
+      - "5683:5683/tcp"
+      - "1337:1337/tcp"
+    environment:
+      - KEY_PATH=/keys/server.pem
+    depends_on:
+      - freesleep
+    volumes:
+      - socket:/deviceinfo/
+      - ./server_priv_key.pem:/keys/server.pem:ro
+
+volumes:
+  socket:
+    driver: local

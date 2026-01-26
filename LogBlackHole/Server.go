@@ -12,6 +12,7 @@ import (
 type LogBlackHole struct{}
 
 func (b LogBlackHole) StartServer() {
+	println("Starting LogBlackhole server...")
 	PORT := ":1337"
 	l, err := net.Listen("tcp4", PORT)
 	if err != nil {

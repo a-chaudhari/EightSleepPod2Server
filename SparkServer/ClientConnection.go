@@ -10,6 +10,8 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -26,16 +28,18 @@ type ClientConnection struct {
 	incomingIv       [16]byte
 	outgoingIv       [16]byte
 	deviceId         [12]byte
-	messageId        int32
+	messageId        uint8 // outgoing mid can only be 0-255, loop back to 0 after that
 	currentRequest   *PodRequest
 	RequestPipe      chan *PodRequest
 	sendMutex        sync.Mutex
-	statePipe        chan *ConnectionNotification
+	socketPath       string
 }
 
-func NewClientConnection(conn *net.Conn, serverPublicKey *rsa.PrivateKey, statePipe chan *ConnectionNotification) *ClientConnection {
+func NewClientConnection(conn *net.Conn, serverPublicKey *rsa.PrivateKey, socketPath string) *ClientConnection {
 	return &ClientConnection{conn: conn, serverPrivateKey: serverPublicKey, messageId: 0,
-		RequestPipe: make(chan *PodRequest, 100), statePipe: statePipe}
+		RequestPipe: make(chan *PodRequest, 100),
+		socketPath:  socketPath,
+	}
 }
 
 func (c *ClientConnection) HandleConnection() {
@@ -46,11 +50,6 @@ func (c *ClientConnection) HandleConnection() {
 	}
 
 	println("Handshake successful, Ready for further communication")
-	c.statePipe <- &ConnectionNotification{
-		DeviceId:    fmt.Sprintf("%x", c.deviceId),
-		IsConnected: true,
-		Conn:        c,
-	}
 	go c.podRequestHandler()
 
 	defer println("exiting client connection handler for", (*c.conn).RemoteAddr().String())
@@ -83,7 +82,7 @@ func (c *ClientConnection) HandleConnection() {
 
 			url, err := coapmsg.Path()
 			if err != nil {
-				println("Error getting path from message:", err)
+				//println("Error getting path from message:", err)
 				url = "/"
 			}
 			if url == "/" && coapmsg.Type() == message.Confirmable {
@@ -121,6 +120,7 @@ func (c *ClientConnection) HandleConnection() {
 					println("error when sending hello Response", err)
 					return
 				}
+				go c.connectToUnixSocket()
 			case "/E/spark/device/claim/code":
 				// noop
 			case "/E/spark/hardware/max_binary":
@@ -177,6 +177,55 @@ func (c *ClientConnection) SplitMessages(data []byte) ([][]byte, error) {
 		messages = append(messages, plaintext)
 	}
 	return messages, nil
+}
+
+func (c *ClientConnection) connectToUnixSocket() {
+	socket, err := net.Dial("unix", c.socketPath)
+	if err != nil {
+		panic(err)
+	}
+	defer socket.Close()
+
+	println("Connected to FrankenSocket unix socket")
+	buf := make([]byte, 4096)
+	for {
+		n, err := socket.Read(buf)
+		if err != nil {
+			println("Error reading from FrankenSocket unix socket:", err)
+			return
+		}
+		data := buf[:n]
+		fmt.Printf("Received %d bytes from FrankenSocket unix socket\n", len(data))
+		strVersion := strings.TrimSpace(string(data))
+		fmt.Printf("%x\n", strVersion)
+		intVersion, err := strconv.Atoi(strVersion)
+		if err != nil {
+			println("Error converting data to int:", err)
+			continue
+		}
+		println("Got int from unix socket:", intVersion)
+		cmd := FrankenCommand(intVersion)
+		switch cmd {
+		case FRANKEN_CMD_DEVICE_STATUS:
+			println("Got device status command")
+			res, err := GetStatus(c)
+			if err != nil {
+				println("Error getting pod status:", err)
+				continue
+			}
+			_, _ = socket.Write([]byte("tgHeatLevelR = " + strconv.Itoa(res.RightBed.TargetHeatLevel) + "\n"))
+			_, _ = socket.Write([]byte("tgHeatLevelL = " + strconv.Itoa(res.LeftBed.TargetHeatLevel) + "\n"))
+			_, _ = socket.Write([]byte("heatTimeR = " + strconv.Itoa(res.RightBed.HeatTime) + "\n"))
+			_, _ = socket.Write([]byte("heatTimeL = " + strconv.Itoa(res.LeftBed.HeatTime) + "\n"))
+			_, _ = socket.Write([]byte("heatLevelR = " + strconv.Itoa(res.RightBed.HeatLevel) + "\n"))
+			_, _ = socket.Write([]byte("heatLevelL = " + strconv.Itoa(res.LeftBed.HeatLevel) + "\n"))
+			_, _ = socket.Write([]byte("sensorLabel = " + res.SensorLabel + "\n"))
+			_, _ = socket.Write([]byte("waterLevel = " + strconv.FormatBool(res.WaterLevel) + "\n"))
+			_, _ = socket.Write([]byte("priming = " + strconv.FormatBool(res.Priming) + "\n"))
+			_, _ = socket.Write([]byte("settings = " + res.Settings + "\n"))
+			_, _ = socket.Write([]byte("\n"))
+		}
+	}
 }
 
 func (c *ClientConnection) performHandshake() error {
@@ -301,7 +350,7 @@ func intToMinBytes(n uint32) []byte {
 		return []byte{0}
 	}
 
-	buf := make([]byte, 4)
+	buf := make([]byte, 1)
 	binary.BigEndian.PutUint32(buf, n)
 
 	// Find first non-zero byte
@@ -319,9 +368,8 @@ func (c *ClientConnection) sendMessaage(msg *message.Message) error {
 
 	response := pool.Message{}
 	if msg.Type != message.Acknowledgement {
-		msg.MessageID = c.messageId
-		// the pod doesn't seem to like extra zeros in the token
-		msg.Token = intToMinBytes(uint32(c.messageId))
+		msg.MessageID = int32(c.messageId)
+		msg.Token = []byte{byte(c.messageId)}
 		c.messageId++
 	}
 

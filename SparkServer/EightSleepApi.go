@@ -106,30 +106,30 @@ func (c *PodConnection) GetStatus() (PodStatus, error) {
 	} else {
 		status.WaterLevel = false
 	}
-	updating := getData(c, "updating")
-	if string(updating[:]) == "true" {
-		status.Updating = true
-	} else {
-		status.Updating = false
-	}
+	//updating := getData(c, "updating")
+	//if string(updating[:]) == "true" {
+	//	status.Updating = true
+	//} else {
+	//	status.Updating = false
+	//}
 
 	sensorLabel := getData(c, "sensorLabel")
 	status.SensorLabel = unwrapQuotes(string(sensorLabel[:]))
 
-	ssid := getData(c, "ssid")
-	status.Ssid = unwrapQuotes(string(ssid[:]))
+	//ssid := getData(c, "ssid")
+	//status.Ssid = unwrapQuotes(string(ssid[:]))
 
 	hubInfo := getData(c, "hubInfo")
 	status.HubInfo = unwrapQuotes(string(hubInfo[:]))
 
-	macAddress := getData(c, "macAddr")
-	status.MacAddress = unwrapQuotes(string(macAddress[:]))
+	//macAddress := getData(c, "macAddr")
+	//status.MacAddress = unwrapQuotes(string(macAddress[:]))
 
-	ipAddress := getData(c, "ipaddr")
-	status.IpAddress = unwrapQuotes(string(ipAddress[:]))
+	//ipAddress := getData(c, "ipaddr")
+	//status.IpAddress = unwrapQuotes(string(ipAddress[:]))
 
-	signalStrength := getData(c, "sigstr")
-	status.SignalStrength = unwrapQuotes(string(signalStrength[:]))
+	//signalStrength := getData(c, "sigstr")
+	//status.SignalStrength = unwrapQuotes(string(signalStrength[:]))
 
 	settings := getData(c, "settings")
 	status.Settings = unwrapQuotes(string(settings[:]))
@@ -234,4 +234,22 @@ func (c *PodConnection) SetAlarm(side BedSide, input string) {
 	hexStr := hex.EncodeToString(marshalled)
 
 	c.SetValue(path, hexStr)
+}
+
+func (c *PodConnection) ClearAlarms() {
+	payload := AlarmParams{
+		Intensity: 0,
+		Duration:  600,
+		Time:      0,
+		Pattern:   "double",
+	}
+	marshalled, err := cbor.Marshal(payload)
+	if err != nil {
+		println("Error marshalling clear alarm params:", err)
+		return
+	}
+	hexStr := hex.EncodeToString(marshalled)
+
+	c.SetValue("alarmL", hexStr)
+	c.SetValue("alarmR", hexStr)
 }

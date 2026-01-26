@@ -13,6 +13,13 @@ type BedStatus struct {
 	TargetHeatLevel int `json:"target_heat_level"`
 }
 
+type BedSide int
+
+const (
+	BedSideLeft  BedSide = 0
+	BedSideRight BedSide = 1
+)
+
 type PodStatus struct {
 	Priming    bool `json:"priming"`
 	WaterLevel bool `json:"water_level"`
@@ -30,7 +37,7 @@ type PodStatus struct {
 	Settings       string `json:"settings"`
 }
 
-func GetStatus(c *ClientConnection) (PodStatus, error) {
+func (c *PodConnection) GetStatus() (PodStatus, error) {
 	status := PodStatus{
 		LeftBed:  BedStatus{},
 		RightBed: BedStatus{},
@@ -128,7 +135,7 @@ func GetStatus(c *ClientConnection) (PodStatus, error) {
 	return status, nil
 }
 
-func getData(c *ClientConnection, verb string) []byte {
+func getData(c *PodConnection, verb string) []byte {
 	msg := message.Message{
 		Options: message.Options{{ID: message.URIPath, Value: []byte("v")}, {ID: message.URIPath, Value: []byte(verb)}},
 		Code:    codes.GET,
@@ -149,4 +156,38 @@ func unwrapQuotes(s string) string {
 	}
 
 	return s
+}
+
+func (c *PodConnection) SetTime(seconds int, side BedSide) {
+	path := "leftHeat"
+	if side == BedSideRight {
+		path = "rightHeat"
+	}
+	value := strconv.Itoa(seconds)
+	c.SetValue(path, value)
+}
+
+func (c *PodConnection) SetLevel(level int, side BedSide) {
+	path := "leftLevel"
+	if side == BedSideRight {
+		path = "rightLevel"
+	}
+	value := strconv.Itoa(level)
+	c.SetValue(path, value)
+}
+
+func (c *PodConnection) SetValue(path string, value string) {
+	msg := message.Message{
+		Options: message.Options{
+			{ID: message.URIPath, Value: []byte("f")},
+			{ID: message.URIPath, Value: []byte(path)},
+			{ID: message.URIQuery, Value: []byte(value)},
+		},
+		Code: codes.POST,
+		Type: message.Confirmable,
+	}
+	podReq := NewPodRequest(&msg)
+	c.RequestPipe <- podReq
+	<-podReq.Ready
+	println("done setting", path, "to", value)
 }

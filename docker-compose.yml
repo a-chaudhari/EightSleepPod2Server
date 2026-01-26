@@ -3,7 +3,6 @@ services:
     build:
       context: .
       dockerfile: FreeSleep.Dockerfile
-    container_name: FreeSleep
     ports:
         - "3000:3000"
     volumes:
@@ -17,7 +16,6 @@ services:
     build:
       context: .
       dockerfile: ./Pod2.Dockerfile
-    container_name: PodTwoInterface
     ports:
       - "5683:5683/tcp"
       - "1337:1337/tcp"

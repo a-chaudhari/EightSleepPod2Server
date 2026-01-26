@@ -65,7 +65,7 @@ func (s *Server) handleConnection(c net.Conn) {
 		_ = c.Close()
 	}(c)
 
-	client := NewClientConnection(&c, s.serverPrivateKey, s.socketPath)
+	client := NewPodConnection(&c, s.serverPrivateKey, s.socketPath)
 	client.HandleConnection() // blocking call
 	println("Client disconnected:", c.RemoteAddr().String())
 }

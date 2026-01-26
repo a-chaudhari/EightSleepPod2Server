@@ -21,7 +21,7 @@ import (
 	"github.com/plgd-dev/go-coap/v3/udp/coder"
 )
 
-type ClientConnection struct {
+type PodConnection struct {
 	conn             *net.Conn
 	serverPrivateKey *rsa.PrivateKey
 	aesCipher        cipher.Block
@@ -35,14 +35,14 @@ type ClientConnection struct {
 	socketPath       string
 }
 
-func NewClientConnection(conn *net.Conn, serverPublicKey *rsa.PrivateKey, socketPath string) *ClientConnection {
-	return &ClientConnection{conn: conn, serverPrivateKey: serverPublicKey, messageId: 0,
+func NewPodConnection(conn *net.Conn, serverPublicKey *rsa.PrivateKey, socketPath string) *PodConnection {
+	return &PodConnection{conn: conn, serverPrivateKey: serverPublicKey, messageId: 0,
 		RequestPipe: make(chan *PodRequest, 100),
 		socketPath:  socketPath,
 	}
 }
 
-func (c *ClientConnection) HandleConnection() {
+func (c *PodConnection) HandleConnection() {
 	err := c.performHandshake()
 	if err != nil {
 		println("Error performing handshake:", err)
@@ -86,7 +86,7 @@ func (c *ClientConnection) HandleConnection() {
 				url = "/"
 			}
 			if url == "/" && coapmsg.Type() == message.Confirmable {
-				err := c.handlePingLike(coapmsg)
+				err := c.handleKeepAlive(coapmsg)
 				if err != nil {
 					println("Error handling ping like:", err)
 					return
@@ -148,7 +148,7 @@ func (c *ClientConnection) HandleConnection() {
 	}
 }
 
-func (c *ClientConnection) SplitMessages(data []byte) ([][]byte, error) {
+func (c *PodConnection) SplitMessages(data []byte) ([][]byte, error) {
 	var messages [][]byte
 	offset := 0
 	for offset < len(data) {
@@ -179,7 +179,7 @@ func (c *ClientConnection) SplitMessages(data []byte) ([][]byte, error) {
 	return messages, nil
 }
 
-func (c *ClientConnection) connectToUnixSocket() {
+func (c *PodConnection) connectToUnixSocket() {
 	socket, err := net.Dial("unix", c.socketPath)
 	if err != nil {
 		panic(err)
@@ -196,7 +196,9 @@ func (c *ClientConnection) connectToUnixSocket() {
 		}
 		data := buf[:n]
 		fmt.Printf("Received %d bytes from FrankenSocket unix socket\n", len(data))
-		strVersion := strings.TrimSpace(string(data))
+		fmt.Printf("Data: %x\n", string(data))
+		parts := strings.Split(string(data), "\n")
+		strVersion := parts[0]
 		fmt.Printf("%x\n", strVersion)
 		intVersion, err := strconv.Atoi(strVersion)
 		if err != nil {
@@ -206,29 +208,68 @@ func (c *ClientConnection) connectToUnixSocket() {
 		println("Got int from unix socket:", intVersion)
 		cmd := FrankenCommand(intVersion)
 		switch cmd {
-		case FRANKEN_CMD_DEVICE_STATUS:
-			println("Got device status command")
-			res, err := GetStatus(c)
+		case FrankenCmdDeviceStatus:
+			res, err := c.GetStatus()
 			if err != nil {
 				println("Error getting pod status:", err)
 				continue
 			}
-			_, _ = socket.Write([]byte("tgHeatLevelR = " + strconv.Itoa(res.RightBed.TargetHeatLevel) + "\n"))
-			_, _ = socket.Write([]byte("tgHeatLevelL = " + strconv.Itoa(res.LeftBed.TargetHeatLevel) + "\n"))
-			_, _ = socket.Write([]byte("heatTimeR = " + strconv.Itoa(res.RightBed.HeatTime) + "\n"))
-			_, _ = socket.Write([]byte("heatTimeL = " + strconv.Itoa(res.LeftBed.HeatTime) + "\n"))
-			_, _ = socket.Write([]byte("heatLevelR = " + strconv.Itoa(res.RightBed.HeatLevel) + "\n"))
-			_, _ = socket.Write([]byte("heatLevelL = " + strconv.Itoa(res.LeftBed.HeatLevel) + "\n"))
-			_, _ = socket.Write([]byte("sensorLabel = " + res.SensorLabel + "\n"))
-			_, _ = socket.Write([]byte("waterLevel = " + strconv.FormatBool(res.WaterLevel) + "\n"))
-			_, _ = socket.Write([]byte("priming = " + strconv.FormatBool(res.Priming) + "\n"))
-			_, _ = socket.Write([]byte("settings = " + res.Settings + "\n"))
-			_, _ = socket.Write([]byte("\n"))
+			output := fmt.Sprintf(
+				"tgHeatLevelR = %d\ntgHeatLevelL = %d\nheatTimeR = %d\nheatTimeL = %d\nheatLevelR = %d\nheatLevelL = %d\nsensorLabel = %s\nwaterLevel = %t\npriming = %t\nsettings = %s\n\n",
+				res.RightBed.TargetHeatLevel,
+				res.LeftBed.TargetHeatLevel,
+				res.RightBed.HeatTime,
+				res.LeftBed.HeatTime,
+				res.RightBed.HeatLevel,
+				res.LeftBed.HeatLevel,
+				res.SensorLabel,
+				res.WaterLevel,
+				res.Priming,
+				res.Settings,
+			)
+			_, _ = socket.Write([]byte(output))
+
+		case FrankenCmdLeftTempDur:
+			arg, err := strconv.Atoi(parts[1])
+			if err != nil {
+				println("Error converting left temp duration arg to int:", err)
+				continue
+			}
+			c.SetTime(arg, BedSideLeft)
+			_, _ = socket.Write([]byte("ok\n\n"))
+		case FrankenCmdRightTempDur:
+			arg, err := strconv.Atoi(parts[1])
+			if err != nil {
+				println("Error converting right temp duration arg to int:", err)
+				continue
+			}
+			c.SetTime(arg, BedSideRight)
+			_, _ = socket.Write([]byte("ok\n\n"))
+		case FrankenCmdTempLevelLeft:
+			arg, err := strconv.Atoi(parts[1])
+			if err != nil {
+				println("Error converting left temp level arg to int:", err)
+				continue
+			}
+			c.SetLevel(arg, BedSideLeft)
+			_, _ = socket.Write([]byte("ok\n\n"))
+
+		case FrankenCmdTempLevelRight:
+			arg, err := strconv.Atoi(parts[1])
+			if err != nil {
+				println("Error converting right temp level arg to int:", err)
+				continue
+			}
+			c.SetLevel(arg, BedSideRight)
+			_, _ = socket.Write([]byte("ok\n\n"))
+
+		default:
+			println("Unhandled FrankenCommand from unix socket:", intVersion)
 		}
 	}
 }
 
-func (c *ClientConnection) performHandshake() error {
+func (c *PodConnection) performHandshake() error {
 	// create random 40 byte slice
 	nonce, err := createNonce()
 	if err != nil {
@@ -315,7 +356,7 @@ func (c *ClientConnection) performHandshake() error {
 	return nil
 }
 
-func (c *ClientConnection) decrypt(input []byte) ([]byte, error) {
+func (c *PodConnection) decrypt(input []byte) ([]byte, error) {
 	plaintext := make([]byte, len(input))
 	cipher.NewCBCDecrypter(c.aesCipher, c.incomingIv[:]).CryptBlocks(plaintext, input)
 	// Remove PKCS7 padding
@@ -328,7 +369,7 @@ func (c *ClientConnection) decrypt(input []byte) ([]byte, error) {
 	return plaintext[:len(plaintext)-padLen], nil
 }
 
-func (c *ClientConnection) encrypt(plaintext []byte) ([]byte, error) {
+func (c *PodConnection) encrypt(plaintext []byte) ([]byte, error) {
 	// PKCS7 padding
 	padLen := aes.BlockSize - (len(plaintext) % aes.BlockSize)
 	padded := make([]byte, len(plaintext)+padLen)
@@ -345,24 +386,7 @@ func (c *ClientConnection) encrypt(plaintext []byte) ([]byte, error) {
 	return ciphertext, nil
 }
 
-func intToMinBytes(n uint32) []byte {
-	if n == 0 {
-		return []byte{0}
-	}
-
-	buf := make([]byte, 1)
-	binary.BigEndian.PutUint32(buf, n)
-
-	// Find first non-zero byte
-	for i, b := range buf {
-		if b != 0 {
-			return buf[i:]
-		}
-	}
-	return buf
-}
-
-func (c *ClientConnection) sendMessaage(msg *message.Message) error {
+func (c *PodConnection) sendMessage(msg *message.Message) error {
 	c.sendMutex.Lock()
 	defer c.sendMutex.Unlock()
 
@@ -397,28 +421,28 @@ func (c *ClientConnection) sendMessaage(msg *message.Message) error {
 	return nil
 }
 
-func (c *ClientConnection) handlePingLike(incoming *pool.Message) error {
-	println("Handling ping-like")
+func (c *PodConnection) handleKeepAlive(incoming *pool.Message) error {
+	println("Handling keepAlive")
 	msg := message.Message{
 		MessageID: incoming.MessageID(),
 		Type:      message.Acknowledgement,
 		Code:      codes.Empty,
 		Token:     incoming.Token(),
 	}
-	return c.sendMessaage(&msg)
+	return c.sendMessage(&msg)
 }
 
-func (c *ClientConnection) handleHello() error {
+func (c *PodConnection) handleHello() error {
 	msg := message.Message{
 		Options: message.Options{{ID: message.URIPath, Value: []byte("h")}},
 		Code:    codes.POST,
 		Payload: nil,
 		Type:    message.NonConfirmable,
 	}
-	return c.sendMessaage(&msg)
+	return c.sendMessage(&msg)
 }
 
-func (c *ClientConnection) handleESpark(incoming *pool.Message) error {
+func (c *PodConnection) handleESpark(incoming *pool.Message) error {
 	println("Handling e/spark")
 	msg := message.Message{
 		Type:      message.Acknowledgement,
@@ -426,10 +450,10 @@ func (c *ClientConnection) handleESpark(incoming *pool.Message) error {
 		Code:      codes.Empty,
 		Token:     incoming.Token(),
 	}
-	return c.sendMessaage(&msg)
+	return c.sendMessage(&msg)
 }
 
-func (c *ClientConnection) handleTimestamp(incoming *pool.Message) error {
+func (c *PodConnection) handleTimestamp(incoming *pool.Message) error {
 	println("Handling timestamp")
 	now := time.Now().Unix()
 	nowbytes := make([]byte, 4)
@@ -441,16 +465,16 @@ func (c *ClientConnection) handleTimestamp(incoming *pool.Message) error {
 		Token:     incoming.Token(),
 		Payload:   nowbytes,
 	}
-	return c.sendMessaage(&msg)
+	return c.sendMessage(&msg)
 }
 
-func (c *ClientConnection) podRequestHandler() {
+func (c *PodConnection) podRequestHandler() {
 	for {
 		select {
 		case req := <-c.RequestPipe:
 			println("Received pod request")
 			c.currentRequest = req
-			err := c.sendMessaage(req.message)
+			err := c.sendMessage(req.message)
 			if err != nil {
 				println("Error sending pod request Response:", err)
 				continue

@@ -1,16 +1,36 @@
 package main
 
 import (
-	"EightSleepServer/LogBlackHole"
+	"EightSleepServer/LogServer"
 	"EightSleepServer/SparkServer"
 	"os"
+	"strconv"
 )
 
 func main() {
 	println("Starting server...")
-	// start the fake logging server
-	logBlackHole := LogBlackHole.LogBlackHole{}
-	go logBlackHole.StartServer()
+	// start the logging server
+	logServer := LogServer.LogServer{}
+
+	logPath := os.Getenv("LOG_PATH")
+	if logPath == "" {
+		logPath = "./logs"
+	}
+	logPort := os.Getenv("LOG_PORT")
+	if logPort == "" {
+		logPort = "1337"
+	}
+	logPortInt, err := strconv.Atoi(logPort)
+	if err != nil {
+		panic(err)
+	}
+	logSaveFiles := os.Getenv("LOG_SAVE_FILES")
+	logSaveBool := false
+	if logSaveFiles == "true" {
+		logSaveBool = true
+	}
+
+	go logServer.StartServer(logSaveBool, logPath, logPortInt)
 
 	keyPath := os.Getenv("KEY_PATH")
 	socketPath := os.Getenv("SOCKET_PATH")
@@ -18,9 +38,18 @@ func main() {
 		socketPath = "/deviceinfo/dac.sock"
 	}
 
+	sparkPort := os.Getenv("SPARK_PORT")
+	if sparkPort == "" {
+		sparkPort = "5683"
+	}
+	sparkPortInt, err := strconv.Atoi(sparkPort)
+	if err != nil {
+		panic(err)
+	}
+
 	server := SparkServer.NewServer(
 		keyPath,
-		5683,
+		sparkPortInt,
 		socketPath)
 	go server.StartServer()
 

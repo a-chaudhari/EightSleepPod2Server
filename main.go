@@ -25,7 +25,7 @@ func main() {
 		panic(err)
 	}
 	logSaveFiles := os.Getenv("LOG_SAVE_FILES")
-	logSaveBool := false
+	logSaveBool := true
 	if logSaveFiles == "true" {
 		logSaveBool = true
 	}

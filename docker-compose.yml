@@ -1,0 +1,51 @@
+services:
+  freesleep-server:
+    build:
+      context: .
+      dockerfile: FreeSleep.Dockerfile
+    ports:
+        - "3000:3000/tcp"
+    volumes:
+      - ./fs-persistent:/persistent
+      - socket:/deviceinfo/
+    command:
+      - sh
+      - -c
+      - |
+        set -e
+        npm run migrate deploy
+        npm run start
+
+  freesleep-stream:
+    build:
+      context: .
+      dockerfile: FreeSleep.Dockerfile
+    volumes:
+      - ./fs-persistent:/persistent
+    depends_on:
+      - freesleep-server
+    working_dir: /home/dac/free-sleep/biometrics
+    network_mode: service:freesleep-server
+    command: python3 stream/stream.py
+
+  pod-server:
+    build:
+      context: .
+      dockerfile: ./Pod2.Dockerfile
+    ports:
+      - "5683:5683/tcp"
+      - "1337:1337/tcp"
+    environment:
+      - KEY_PATH=/keys/server.pem
+      - LOG_SAVE_FILES=true
+      - LOG_PATH=/persistent
+    depends_on:
+      - freesleep-server
+    volumes:
+      - socket:/deviceinfo/
+      - ./fs-persistent:/persistent
+      - ./server_priv_key.pem:/keys/server.pem:ro
+
+volumes:
+  socket:
+    driver: local

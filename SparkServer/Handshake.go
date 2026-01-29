@@ -1,6 +1,8 @@
 package SparkServer
 
 import (
+	"bytes"
+	"crypto/aes"
 	"crypto/hmac"
 	"crypto/rand"
 	"crypto/rsa"
@@ -15,6 +17,93 @@ type ClientResponse struct {
 	Nonce           [40]byte
 	ClientDeviceKey [12]byte
 	ClientPublicKey *rsa.PublicKey
+}
+
+func (c *PodConnection) performHandshake() error {
+	// create random 40 byte slice
+	nonce, err := createNonce()
+	if err != nil {
+		fmt.Println("Error creating nonce:", err)
+		return err
+	}
+
+	// send down wire
+	_, err = (*c.conn).Write(nonce)
+	if err != nil {
+		fmt.Println("Error sending nonce:", err)
+		return err
+	}
+
+	// wait for Response payload
+	buf := make([]byte, 1024)
+	n, err := (*c.conn).Read(buf)
+	if err != nil {
+		fmt.Println("Error reading Response:", err)
+		return err
+	}
+	responsePayload := buf[:n]
+
+	// try decrypting with private key
+	decryptedPayload, err := decryptWithServerRSA(responsePayload, c.serverPrivateKey)
+	if err != nil {
+		fmt.Println("Error decrypting payload:", err)
+		return err
+	}
+
+	//fmt.Printf("Decrypted Payload: %x\n", decryptedPayload)
+	response, err := parseClientHandshake(decryptedPayload)
+	if err != nil {
+		fmt.Println("Error parsing client handshake:", err)
+		return err
+	}
+	c.deviceId = response.ClientDeviceKey
+
+	println("Client handshake received")
+	if !bytes.Equal(nonce, response.Nonce[:40]) {
+		println("Nonce mismatch")
+		return err
+	}
+	println("nonce matched")
+
+	// now need to create handshake Response
+	keybuffer, err := createNonce()
+	if err != nil {
+		println("Error creating key block:", err)
+		return err
+	}
+	c.aesCipher, err = aes.NewCipher(keybuffer[:16])
+	if err != nil {
+		println("Error creating AES cipher:", err)
+		return err
+	}
+	c.incomingIv = [16]byte(keybuffer[16:32])
+	c.outgoingIv = c.incomingIv
+	//fmt.Printf("aes key: %h  iv: %x\n", aesKey, outgoingIv)
+
+	cyphertext, err := encryptWithClientRSA(keybuffer, response.ClientPublicKey)
+	if err != nil {
+		println("Error encrypting payload:", err)
+		return err
+	}
+
+	secondResponse, err := createHmacSignature(cyphertext, keybuffer, c.serverPrivateKey)
+	if err != nil {
+		println("cannot generate hmac", err)
+		return err
+	}
+
+	// Combine: 128 bytes ciphertext + 256 bytes signature
+	bigBlob := make([]byte, len(cyphertext)+len(secondResponse))
+	copy(bigBlob, cyphertext)
+	copy(bigBlob[len(cyphertext):], secondResponse)
+
+	_, err = (*c.conn).Write(bigBlob)
+	if err != nil {
+		fmt.Println("Error writing Response:", err)
+		return err
+	}
+
+	return nil
 }
 
 func createNonce() ([]byte, error) {
@@ -54,8 +143,6 @@ func encryptWithClientRSA(data []byte, key *rsa.PublicKey) ([]byte, error) {
 }
 
 func pkcs1v15PadRaw(data []byte, keySize int) ([]byte, error) {
-	// PKCS#1 v1.5 padding WITHOUT DigestInfo
-	// Format: 0x00 0x01 [0xFF...] 0x00 [data]
 	paddingLen := keySize - len(data) - 3
 
 	if paddingLen < 8 {
@@ -75,8 +162,6 @@ func pkcs1v15PadRaw(data []byte, keySize int) ([]byte, error) {
 }
 
 func rsaSignRawPKCS1(priv *rsa.PrivateKey, data []byte) ([]byte, error) {
-	// Sign using PKCS#1 v1.5 padding WITHOUT DigestInfo
-	// Compatible with TropicSSL rsa_pkcs1_verify(..., RSA_RAW, ...)
 	keySize := priv.Size()
 
 	padded, err := pkcs1v15PadRaw(data, keySize)
@@ -114,12 +199,6 @@ func createHmacSignature(payload []byte, hmacKey []byte, signingKey *rsa.Private
 	if err != nil {
 		return nil, err
 	}
-	fmt.Printf("[DEBUG] Signature: %d bytes\n", len(signature))
-
-	// Combine: 128 bytes ciphertext + 256 bytes signature
-	//response := make([]byte, len(hmacKey)+len(signature))
-	//copy(response, hmacKey)
-	//copy(response[len(hmacKey):], signature)
 
 	return signature, nil
 }

@@ -1,7 +1,6 @@
 package SparkServer
 
 import (
-	"bytes"
 	"context"
 	"crypto/aes"
 	"crypto/cipher"
@@ -10,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"sync"
 	"time"
 
 	"github.com/plgd-dev/go-coap/v3/message"
@@ -18,28 +18,38 @@ import (
 	"github.com/plgd-dev/go-coap/v3/udp/coder"
 )
 
-type ClientConnection struct {
+type PodConnection struct {
 	conn             *net.Conn
 	serverPrivateKey *rsa.PrivateKey
 	aesCipher        cipher.Block
 	incomingIv       [16]byte
 	outgoingIv       [16]byte
 	deviceId         [12]byte
-	messageId        int32
+	messageId        uint8 // outgoing mid can only be 0-255, loop back to 0 after that
+	currentRequest   *PodRequest
+	RequestPipe      chan *PodRequest
+	sendMutex        sync.Mutex
+	socketPath       string
 }
 
-func NewClientConnection(conn *net.Conn, serverPublicKey *rsa.PrivateKey) *ClientConnection {
-	return &ClientConnection{conn: conn, serverPrivateKey: serverPublicKey, messageId: 0}
+func NewPodConnection(conn *net.Conn, serverPublicKey *rsa.PrivateKey, socketPath string) *PodConnection {
+	return &PodConnection{conn: conn, serverPrivateKey: serverPublicKey, messageId: 0,
+		RequestPipe: make(chan *PodRequest, 100),
+		socketPath:  socketPath,
+	}
 }
 
-func (c *ClientConnection) HandleConnection() {
+func (c *PodConnection) HandleConnection() {
 	err := c.performHandshake()
 	if err != nil {
 		println("Error performing handshake:", err)
 		return
 	}
 
-	println("Handshake successful, ready for further communication")
+	println("Handshake successful, Ready for further communication")
+	go c.podRequestHandler()
+
+	defer println("exiting client connection handler for", (*c.conn).RemoteAddr().String())
 
 	buf := make([]byte, 2048)
 	for {
@@ -49,7 +59,7 @@ func (c *ClientConnection) HandleConnection() {
 			return
 		}
 		data := buf[:n]
-		fmt.Printf("Received %d bytes of data\n", len(data))
+		//fmt.Printf("Received %d bytes of data\n", len(data))
 		// split up payload into msgs
 		messages, err := c.SplitMessages(data)
 		if err != nil {
@@ -59,36 +69,55 @@ func (c *ClientConnection) HandleConnection() {
 
 		// process each msg
 		for _, msg := range messages {
-			fmt.Printf("Processing message: %x\n", msg)
+			//fmt.Printf("Processing message: %x\n", msg)
 			coapmsg := pool.NewMessage(context.Background())
 			_, err := coapmsg.UnmarshalWithDecoder(coder.DefaultCoder, msg)
-			println("CoAP Message:", coapmsg.String())
+			//println("CoAP Message:", coapmsg.String())
 			if err != nil {
 				return
 			}
 
 			url, err := coapmsg.Path()
 			if err != nil {
-				println("Error getting path from message:", err)
+				//println("Error getting path from message:", err)
 				url = "/"
 			}
 			if url == "/" && coapmsg.Type() == message.Confirmable {
-				err := c.handlePingLike(coapmsg)
+				err := c.handleKeepAlive(coapmsg)
 				if err != nil {
 					println("Error handling ping like:", err)
 					return
 				}
 				continue
 			}
+			if coapmsg.Type() == message.Acknowledgement {
+				// this is a Response to an earlier request
+				if c.currentRequest != nil && coapmsg.MessageID() == c.currentRequest.message.MessageID {
+					//println("Received Response for current pod request")
+					body, err := coapmsg.ReadBody()
+					if err != nil {
+						println("Error reading body of pod Response:", err)
+						continue
+					}
+					cr := c.currentRequest
+					c.currentRequest = nil
+					cr.SetResponse(body)
+					continue
+				} else {
+					println("Received acknowledgement for unknown request, ignoring")
+					continue
+				}
+			}
 
 			switch url {
 			case "/h":
-				println("H received")
+				println("Hello received")
 				err := c.handleHello()
 				if err != nil {
-					println("error when sending hello response", err)
+					println("error when sending hello Response", err)
 					return
 				}
+				go c.connectToUnixSocket()
 			case "/E/spark/device/claim/code":
 				// noop
 			case "/E/spark/hardware/max_binary":
@@ -116,7 +145,8 @@ func (c *ClientConnection) HandleConnection() {
 	}
 }
 
-func (c *ClientConnection) SplitMessages(data []byte) ([][]byte, error) {
+func (c *PodConnection) SplitMessages(data []byte) ([][]byte, error) {
+	// a single tcp payload may contain multiple messages
 	var messages [][]byte
 	offset := 0
 	for offset < len(data) {
@@ -141,100 +171,12 @@ func (c *ClientConnection) SplitMessages(data []byte) ([][]byte, error) {
 			println("Error decrypting message:", err)
 			return nil, err
 		}
-		fmt.Printf("[DEBUG] Decrypted message: %d bytes\n", len(plaintext))
 		messages = append(messages, plaintext)
 	}
 	return messages, nil
 }
 
-func (c *ClientConnection) performHandshake() error {
-	// create random 40 byte slice
-	nonce, err := createNonce()
-	if err != nil {
-		fmt.Println("Error creating nonce:", err)
-		return err
-	}
-
-	// send down wire
-	_, err = (*c.conn).Write(nonce)
-	if err != nil {
-		fmt.Println("Error sending nonce:", err)
-		return err
-	}
-
-	// wait for response payload
-	buf := make([]byte, 1024)
-	n, err := (*c.conn).Read(buf)
-	if err != nil {
-		fmt.Println("Error reading response:", err)
-		return err
-	}
-	responsePayload := buf[:n]
-
-	// try decrypting with private key
-	decryptedPayload, err := decryptWithServerRSA(responsePayload, c.serverPrivateKey)
-	if err != nil {
-		fmt.Println("Error decrypting payload:", err)
-		return err
-	}
-
-	//fmt.Printf("Decrypted Payload: %x\n", decryptedPayload)
-	response, err := parseClientHandshake(decryptedPayload)
-	if err != nil {
-		fmt.Println("Error parsing client handshake:", err)
-		return err
-	}
-	c.deviceId = response.ClientDeviceKey
-
-	println("Client handshake received")
-	if !bytes.Equal(nonce, response.Nonce[:40]) {
-		println("Nonce mismatch")
-		return err
-	}
-	println("nonce matched")
-
-	// now need to create handshake response
-	keybuffer, err := createNonce()
-	if err != nil {
-		println("Error creating key block:", err)
-		return err
-	}
-	c.aesCipher, err = aes.NewCipher(keybuffer[:16])
-	if err != nil {
-		println("Error creating AES cipher:", err)
-		return err
-	}
-	c.incomingIv = [16]byte(keybuffer[16:32])
-	c.outgoingIv = c.incomingIv
-	//fmt.Printf("aes key: %h  iv: %x\n", aesKey, outgoingIv)
-
-	cyphertext, err := encryptWithClientRSA(keybuffer, response.ClientPublicKey)
-	if err != nil {
-		println("Error encrypting payload:", err)
-		return err
-	}
-
-	secondResponse, err := createHmacSignature(cyphertext, keybuffer, c.serverPrivateKey)
-	if err != nil {
-		println("cannot generate hmac", err)
-		return err
-	}
-
-	// Combine: 128 bytes ciphertext + 256 bytes signature
-	bigBlob := make([]byte, len(cyphertext)+len(secondResponse))
-	copy(bigBlob, cyphertext)
-	copy(bigBlob[len(cyphertext):], secondResponse)
-
-	_, err = (*c.conn).Write(bigBlob)
-	if err != nil {
-		fmt.Println("Error writing response:", err)
-		return err
-	}
-
-	return nil
-}
-
-func (c *ClientConnection) decrypt(input []byte) ([]byte, error) {
+func (c *PodConnection) decrypt(input []byte) ([]byte, error) {
 	plaintext := make([]byte, len(input))
 	cipher.NewCBCDecrypter(c.aesCipher, c.incomingIv[:]).CryptBlocks(plaintext, input)
 	// Remove PKCS7 padding
@@ -247,7 +189,7 @@ func (c *ClientConnection) decrypt(input []byte) ([]byte, error) {
 	return plaintext[:len(plaintext)-padLen], nil
 }
 
-func (c *ClientConnection) encrypt(plaintext []byte) ([]byte, error) {
+func (c *PodConnection) encrypt(plaintext []byte) ([]byte, error) {
 	// PKCS7 padding
 	padLen := aes.BlockSize - (len(plaintext) % aes.BlockSize)
 	padded := make([]byte, len(plaintext)+padLen)
@@ -264,20 +206,23 @@ func (c *ClientConnection) encrypt(plaintext []byte) ([]byte, error) {
 	return ciphertext, nil
 }
 
-func (c *ClientConnection) sendMessaage(msg message.Message) error {
+func (c *PodConnection) sendMessage(msg *message.Message) error {
+	c.sendMutex.Lock()
+	defer c.sendMutex.Unlock()
+
 	response := pool.Message{}
 	if msg.Type != message.Acknowledgement {
-		msg.MessageID = c.messageId
-		msg.Token = make(message.Token, c.messageId)
+		msg.MessageID = int32(c.messageId)
+		msg.Token = []byte{byte(c.messageId)}
 		c.messageId++
 	}
 
-	response.SetMessage(msg)
+	response.SetMessage(*msg)
 	output, err := response.MarshalWithEncoder(coder.DefaultCoder)
 	if err != nil {
 		return err
 	}
-	fmt.Printf("message outgoing: %x\n", output)
+	//fmt.Printf("message outgoing: %x\n", output)
 
 	encryptedPayload, err := c.encrypt(output)
 	if err != nil {
@@ -296,28 +241,27 @@ func (c *ClientConnection) sendMessaage(msg message.Message) error {
 	return nil
 }
 
-func (c *ClientConnection) handlePingLike(incoming *pool.Message) error {
-	println("Handling ping-like")
+func (c *PodConnection) handleKeepAlive(incoming *pool.Message) error {
 	msg := message.Message{
 		MessageID: incoming.MessageID(),
 		Type:      message.Acknowledgement,
 		Code:      codes.Empty,
 		Token:     incoming.Token(),
 	}
-	return c.sendMessaage(msg)
+	return c.sendMessage(&msg)
 }
 
-func (c *ClientConnection) handleHello() error {
+func (c *PodConnection) handleHello() error {
 	msg := message.Message{
 		Options: message.Options{{ID: message.URIPath, Value: []byte("h")}},
 		Code:    codes.POST,
 		Payload: nil,
 		Type:    message.NonConfirmable,
 	}
-	return c.sendMessaage(msg)
+	return c.sendMessage(&msg)
 }
 
-func (c *ClientConnection) handleESpark(incoming *pool.Message) error {
+func (c *PodConnection) handleESpark(incoming *pool.Message) error {
 	println("Handling e/spark")
 	msg := message.Message{
 		Type:      message.Acknowledgement,
@@ -325,10 +269,10 @@ func (c *ClientConnection) handleESpark(incoming *pool.Message) error {
 		Code:      codes.Empty,
 		Token:     incoming.Token(),
 	}
-	return c.sendMessaage(msg)
+	return c.sendMessage(&msg)
 }
 
-func (c *ClientConnection) handleTimestamp(incoming *pool.Message) error {
+func (c *PodConnection) handleTimestamp(incoming *pool.Message) error {
 	println("Handling timestamp")
 	now := time.Now().Unix()
 	nowbytes := make([]byte, 4)
@@ -340,5 +284,22 @@ func (c *ClientConnection) handleTimestamp(incoming *pool.Message) error {
 		Token:     incoming.Token(),
 		Payload:   nowbytes,
 	}
-	return c.sendMessaage(msg)
+	return c.sendMessage(&msg)
+}
+
+func (c *PodConnection) podRequestHandler() {
+	for {
+		select {
+		case req := <-c.RequestPipe:
+			//println("Received pod request")
+			c.currentRequest = req
+			err := c.sendMessage(req.message)
+			if err != nil {
+				println("Error sending pod request Response:", err)
+				continue
+			}
+			<-req.Ready // blocks until Response is Ready
+			//println("Pod request Response Ready")
+		}
+	}
 }

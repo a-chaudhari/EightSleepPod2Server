@@ -5,16 +5,17 @@ import (
 	"crypto/x509"
 	"encoding/pem"
 	"fmt"
-	"log"
 	"net"
 	"os"
 )
 
 type Server struct {
 	serverPrivateKey *rsa.PrivateKey
+	port             int
+	socketPath       string
 }
 
-func NewServer(publicKeyPath string) *Server {
+func NewServer(publicKeyPath string, port int, socketPath string) *Server {
 	dat, err := os.ReadFile(publicKeyPath)
 	if err != nil {
 		panic(err)
@@ -32,14 +33,17 @@ func NewServer(publicKeyPath string) *Server {
 
 	return &Server{
 		serverPrivateKey: cert.(*rsa.PrivateKey),
+		port:             port,
+		socketPath:       socketPath,
 	}
 }
 
 func (s *Server) StartServer() {
-	PORT := ":5683"
-	l, err := net.Listen("tcp4", PORT)
+	println("Starting SparkServer on port ", s.port)
+	portString := fmt.Sprintf(":%d", s.port)
+	l, err := net.Listen("tcp4", portString)
 	if err != nil {
-		log.Fatal(err)
+		panic(err)
 	}
 	defer func(l net.Listener) {
 		_ = l.Close()
@@ -51,7 +55,7 @@ func (s *Server) StartServer() {
 			fmt.Println(err)
 			return
 		}
-		go s.handleConnection(c)
+		s.handleConnection(c)
 	}
 }
 
@@ -61,6 +65,7 @@ func (s *Server) handleConnection(c net.Conn) {
 		_ = c.Close()
 	}(c)
 
-	client := NewClientConnection(&c, s.serverPrivateKey)
-	client.HandleConnection()
+	client := NewPodConnection(&c, s.serverPrivateKey, s.socketPath)
+	client.HandleConnection() // blocking call
+	println("Client disconnected:", c.RemoteAddr().String())
 }

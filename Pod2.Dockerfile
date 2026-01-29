@@ -14,4 +14,6 @@ WORKDIR /usr/local/bin
 EXPOSE 5683/tcp
 EXPOSE 1337/tcp
 
+USER 1000:1000
+
 CMD ["EightSleepServer"]

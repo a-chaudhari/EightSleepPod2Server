@@ -52,9 +52,10 @@ func (b LogServer) handleConnection(c net.Conn) {
 	}(c)
 
 	cbuffer := StreamParser{}
-	secondBuffer := NewSecondLevelParser()
+	//secondBuffer := NewSecondLevelParser()
 	//thirdBuffer := ThirdLevelParser{}
 	buf := make([]byte, 4096)
+	var batchId uint32
 	var osFile *os.File
 	var file *bufio.Writer
 	var counter uint64 = 0
@@ -76,7 +77,6 @@ func (b LogServer) handleConnection(c net.Conn) {
 			return
 		}
 		data := buf[:n]
-		var batchId uint32
 
 		if b.state == StateClientHello {
 			var req WelcomeMessage
@@ -137,30 +137,30 @@ func (b LogServer) handleConnection(c net.Conn) {
 			for _, record := range result.Data {
 				counter += uint64(len(record))
 				// TODO this is dumping 2nd level, we should be dumping first if we want to use as-is
-				secondBuffer.Insert(record)
-				if err != nil {
-					fmt.Println("Error writing to secondBuffer:", err)
-				}
-				res, err := secondBuffer.ExtractCBORPayloads()
-				if err != nil {
-					print("Error extracting CBOR payloads:", err)
-					continue
-				}
-				for _, rec := range res {
+				//secondBuffer.Insert(record)
+				//if err != nil {
+				//	fmt.Println("Error writing to secondBuffer:", err)
+				//}
+				//res, err := secondBuffer.ExtractCBORPayloads()
+				//if err != nil {
+				//	print("Error extracting CBOR payloads:", err)
+				//	continue
+				//}
+				//for _, rec := range res {
 
-					if b.saveFiles {
-						// dump the data into the file
-						//fmt.Printf("Adding %d bytes to file\n", len(record))
-						_, err := file.Write(rec.Data)
-						if err != nil {
-							fmt.Println("Error writing to file:", err)
-						}
-						err = file.Flush()
-						if err != nil {
-							fmt.Println("Error flushing file:", err)
-						}
+				if b.saveFiles {
+					// dump the data into the file
+					//fmt.Printf("Adding %d bytes to file\n", len(record))
+					_, err := file.Write(record)
+					if err != nil {
+						fmt.Println("Error writing to file:", err)
+					}
+					err = file.Flush()
+					if err != nil {
+						fmt.Println("Error flushing file:", err)
 					}
 				}
+				//}
 				//
 				//resTwo, err := thirdBuffer.ExtractLogEntries()
 				//if err != nil {

@@ -51,9 +51,7 @@ func (b LogServer) handleConnection(c net.Conn) {
 		_ = c.Close()
 	}(c)
 
-	cbuffer := StreamParser{}
-	//secondBuffer := NewSecondLevelParser()
-	//thirdBuffer := ThirdLevelParser{}
+	parser := StreamParser{}
 	buf := make([]byte, 4096)
 	var batchId uint32
 	var osFile *os.File
@@ -132,22 +130,10 @@ func (b LogServer) handleConnection(c net.Conn) {
 			b.state = StateReceivingStream
 			continue
 		} else if b.state == StateReceivingStream {
-			cbuffer.Insert(data)
-			result := cbuffer.ExtractCBORByteStrings()
+			parser.Insert(data)
+			result := parser.ExtractCBORByteStrings()
 			for _, record := range result.Data {
 				counter += uint64(len(record))
-				// TODO this is dumping 2nd level, we should be dumping first if we want to use as-is
-				//secondBuffer.Insert(record)
-				//if err != nil {
-				//	fmt.Println("Error writing to secondBuffer:", err)
-				//}
-				//res, err := secondBuffer.ExtractCBORPayloads()
-				//if err != nil {
-				//	print("Error extracting CBOR payloads:", err)
-				//	continue
-				//}
-				//for _, rec := range res {
-
 				if b.saveFiles {
 					// dump the data into the file
 					//fmt.Printf("Adding %d bytes to file\n", len(record))
@@ -160,18 +146,6 @@ func (b LogServer) handleConnection(c net.Conn) {
 						fmt.Println("Error flushing file:", err)
 					}
 				}
-				//}
-				//
-				//resTwo, err := thirdBuffer.ExtractLogEntries()
-				//if err != nil {
-				//	print("Error extracting log entries:", err)
-				//}
-				//if len(resTwo) == 0 {
-				//	print("empty\n")
-				//}
-				//for _, rec := range resTwo {
-				//	fmt.Printf("%d: %s: %s: %s\n", rec.Ts, rec.Level, rec.Type, rec.Msg)
-				//}
 			}
 			if result.ResetFound {
 				if b.saveFiles {

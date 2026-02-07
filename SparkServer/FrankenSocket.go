@@ -10,7 +10,8 @@ import (
 func (c *PodConnection) connectToUnixSocket() {
 	socket, err := net.Dial("unix", c.socketPath)
 	if err != nil {
-		panic(err)
+		println("Error connecting to FrankenSocket unix socket:", err)
+		return
 	}
 	defer socket.Close()
 

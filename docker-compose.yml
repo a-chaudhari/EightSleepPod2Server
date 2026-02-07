@@ -44,7 +44,7 @@ services:
     volumes:
       - socket:/deviceinfo/
       - ./fs-persistent:/persistent
-      - ./server_priv_key.pem:/keys/server.pem:ro
+      - ./server_private_key.pem:/keys/server.pem:ro
 
 volumes:
   socket:

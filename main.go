@@ -18,7 +18,7 @@ func main() {
 	}
 	logPort := os.Getenv("LOG_PORT")
 	if logPort == "" {
-		logPort = "1337"
+		logPort = "1338"
 	}
 	logPortInt, err := strconv.Atoi(logPort)
 	if err != nil {

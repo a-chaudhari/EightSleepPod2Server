@@ -4,11 +4,11 @@
 ## Disclaimer
 This is an educational project for hobbyists and is not intended to be a commercial product.  It is provided as-is without warranty.  Modifying your pod may void your warranty with eight sleep and could potentially brick your device if done incorrectly.  Use at your own risk.
 
-Also, this repo has not undergone any testing beyond myself. Open a ticket if you run into issues or have code or documentation suggestions.
+Also, this repo has not undergone any testing beyond myself. Open an issue if you run into issues or have code or documentation suggestions.
 
 ## Introduction
 
-This repo allows one to control the eight sleep pod 2 completely locally and offline.  This is achieved my modifying the firmware and creating a compatibility layer for free-sleep to work with the pod 2.
+This repo allows one to control the eight sleep pod 2 completely locally and offline.  This is achieved by modifying the firmware and creating a compatibility layer for free-sleep to work with the pod 2.
 
 The firmware is modified to:
 1. connect to a local control server instead of the eight sleep cloud

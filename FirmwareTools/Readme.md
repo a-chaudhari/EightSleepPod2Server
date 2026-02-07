@@ -61,12 +61,12 @@ Save a copy of this file somewhere safe! You must have it inorder to return to s
 1. First copy the dumped firmware to a new file that will be modified. 
    * `cp firmware_backup.bin firmware_modified.bin`
 2. Next create a new RSA private key for the server
-   * `ssh-keygen -t rsa -b 2048 -f server_private_key.pem -N "" `
+   * `openssl genrsa -out server_private_key.pem 2048`
 3. Next run the modify firmware script
-   * `python3 modify_firmware.py firmware_modified.bin server_private_key.pem`
+   * `python3 firmware_tools.py firmware_modified.bin server_private_key.pem`
    * Follow the directions in the script. 
 
-## Step 5 - Prepare the Server
+## Step 5 - Start the Server
 1. Copy the server private key you generated earlier to the server computer into the main project folder
 2. run `docker-compose up -d` to start the server.
 
@@ -75,9 +75,9 @@ Use `./pod_tools.sh write firmware_modified.bin` to flash the modified firmware 
 
 ## Step 7 - Modify Wifi Credentials (Optional)
 If the pod needs to connect to a different wifi network, you can use the wifi connect tool instead of using the app.
-1. Put the pod into pairing mode by holding the button on the back (or on the PCB) until the light starts blinking blue
-3. Wait for the "Eight-XXXX" wifi network to appear on your installation computer and connect to it
-4. Run the wifi connect tool `python3 wifi_connect_tool.py` and follow the directions
+1. Put the pod into pairing mode by holding the large button on the back for 15 seconds (or on the PCB) until the light starts blinking blue
+2. Wait for the "Eight-XXXX" wifi network to appear on your installation computer and connect to it
+3. Run the wifi connect tool `python3 wifi_connect_tool.py` and follow the directions
 
 ## Step 8 - Test FreeSleep
 1. Using a browser, visit http://server_ip:3000 (replace server_ip with the static ip you set earlier)

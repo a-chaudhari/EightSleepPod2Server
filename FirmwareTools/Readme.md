@@ -47,10 +47,14 @@ You need access to the PCB on the top.  There are a few guides online explaining
 3. pod teardown video: https://www.youtube.com/watch?v=ia5bSLa0ERw
 
 ## Step 2 - Connect the ST-Link
-There are 3 connections that are required for programming.  SWIO, SWCLK, and GND. Follow the picture below.
-Verify everything works by running `./pod_tools.sh test`
+There are two debug headers on the board.  Be sure to use the one between the big chip and the wifi module. Use of the Tag Connect cable is recommended over soldering wires directly.
+There are 3 connections that are required for programming.  SWDIO, SWCLK, and Ground. Follow the pictures below.
 
-If you want serial output, you can also connect the TX pin to a USB to TTL Serial adapter.  Make sure to connect the pod's TX to the adapter's RX! You can share the ground between the st-link and the serial adapter.
+![header pinout](./images/header_pinout.jpg "Header Pinout"){width=400}
+![cable pinout](./images/wire_pinout.jpg "Wire Pinout"){width=400}
+
+Verify the connection works by running `./pod_tools.sh test`
+If you want serial output, you can also connect the TX pin to a USB to TTL Serial adapter.  Make sure to connect the pod's Console TX to the adapter's RX! You can share the ground between the st-link and the serial adapter.
 You can use `./pod_tools.sh console` to view the serial output with picocom
 
 ## Step 3 - Dump the Firmware

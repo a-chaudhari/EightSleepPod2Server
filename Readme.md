@@ -34,3 +34,11 @@ Lastly, the repo includes a docker-compose file that runs free-sleep in a simula
 
 ## How to Use
 Follow the instructions in `FirmwareTools/Readme.md` to modify your pod
+
+## Credits
+Big thank you to the following:
+* Free-sleep team for making their excellent UI
+* ThrowawayUsernameRE on reddit for their research into the firmware header structure and other initial research notes 
+* Particle IoT for open sourcing their Spark firmware and protocol and keeping the repo available
+
+I love a ghidra dive as much as anyone else, but those above saved me countless (additional) hours of reverse engineering time and UI development 🙏

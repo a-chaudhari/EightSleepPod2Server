@@ -50,8 +50,9 @@ You need access to the PCB on the top.  There are a few guides online explaining
 There are two debug headers on the board.  Be sure to use the one between the big chip and the wifi module. Use of the Tag Connect cable is recommended over soldering wires directly.
 There are 3 connections that are required for programming.  SWDIO, SWCLK, and Ground. Follow the pictures below.
 
-![header pinout](./images/header_pinout.jpg "Header Pinout"){width=400}
-![cable pinout](./images/wire_pinout.jpg "Wire Pinout"){width=400}
+<img src="./images/header_pinout.jpg" alt="Header Pinout" width="600"/>  
+<br>
+<img src="./images/wire_pinout.jpg" alt="Wire Pinout" width="600"/>  
 
 Verify the connection works by running `./pod_tools.sh test`
 If you want serial output, you can also connect the TX pin to a USB to TTL Serial adapter.  Make sure to connect the pod's Console TX to the adapter's RX! You can share the ground between the st-link and the serial adapter.

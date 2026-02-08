@@ -3,9 +3,10 @@ package main
 import (
 	"EightSleepServer/LogServer"
 	"EightSleepServer/SparkServer"
-	"go.uber.org/zap"
 	"os"
 	"strconv"
+
+	"go.uber.org/zap"
 )
 
 func main() {
@@ -20,7 +21,7 @@ func main() {
 	}
 	logPort := os.Getenv("LOG_PORT")
 	if logPort == "" {
-		logPort = "1338"
+		logPort = "1337"
 	}
 	logPortInt, err := strconv.Atoi(logPort)
 	if err != nil {

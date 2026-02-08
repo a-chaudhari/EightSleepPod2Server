@@ -114,7 +114,8 @@ func (b LogServer) handleConnection(c net.Conn) {
 			}
 			batchIdBytes := data[0x1a:0x1e]
 			batchId = binary.BigEndian.Uint32(batchIdBytes)
-			b.logger.Info("Batch Start", zap.Binary("batch_id_bytes", batchIdBytes))
+			batchIdHex := fmt.Sprintf("%08X", batchId)
+			b.logger.Info("Batch Start", zap.String("batch_id", batchIdHex))
 			fileName := fmt.Sprintf("%s/%08X.RAW", b.filePath, batchId)
 			if b.saveFiles {
 				// open file for writing
@@ -161,9 +162,20 @@ func (b LogServer) handleConnection(c net.Conn) {
 						b.logger.Error("Error closing file", zap.Error(err))
 					}
 				}
-				b.logger.Info("Stream finished", zap.Uint32("batch_id", batchId), zap.Uint64("bytes_received", counter))
-				return
+
+				ack := b.getFileAck(batchId)
+				_, err = c.Write(ack)
+				if err != nil {
+					b.logger.Error("Error sending ack", zap.Error(err))
+				}
+				counter = 0
+				b.state = StateWaitingForStreamStart
+				// convert to hex string
+
+				batchIdHex := fmt.Sprintf("%08X", batchId)
+				b.logger.Info("Stream finished", zap.String("batch_id", batchIdHex), zap.Uint64("bytes_received", counter))
 			}
+			continue
 		}
 	}
 }

@@ -41,4 +41,4 @@ Big thank you to the following:
 * ThrowawayUsernameRE on reddit for their research into the firmware header structure and other initial research notes 
 * Particle IoT for open sourcing their Spark firmware and protocol and keeping the repo available
 
-I love a ghidra dive as much as anyone else, but those above saved me countless (additional) hours of reverse engineering time and UI development 🙏
+I love staring at ghidra as much as anyone else, but those above saved me countless (additional) hours of reverse engineering time and UI development 🙏

@@ -2,6 +2,7 @@ package SparkServer
 
 import (
 	"fmt"
+	"go.uber.org/zap"
 	"net"
 	"strconv"
 	"strings"
@@ -10,26 +11,30 @@ import (
 func (c *PodConnection) connectToUnixSocket() {
 	socket, err := net.Dial("unix", c.socketPath)
 	if err != nil {
-		println("Error connecting to FrankenSocket unix socket:", err)
+		c.logger.Error("Error connecting to FrankenSocket unix socket", zap.String("socketPath", c.socketPath), zap.Error(err))
 		return
 	}
-	defer socket.Close()
+	defer func() {
+		err := socket.Close()
+		if err != nil {
+			c.logger.Error("Error closing FrankenSocket unix socket", zap.Error(err))
+		}
+	}()
 
-	println("Connected to FrankenSocket unix socket")
+	c.logger.Info("Connected to FrankenSocket unix socket", zap.String("socketPath", c.socketPath))
 	buf := make([]byte, 4096)
 	for {
 		n, err := socket.Read(buf)
 		if err != nil {
-			println("Error reading from FrankenSocket unix socket:", err)
+			c.logger.Error("Error reading from FrankenSocket unix socket", zap.Error(err))
 			return
 		}
 		data := buf[:n]
 		parts := strings.Split(string(data), "\n")
 		strVersion := parts[0]
-		//fmt.Printf("%x\n", strVersion)
 		intVersion, err := strconv.Atoi(strVersion)
 		if err != nil {
-			println("Error converting data to int:", err)
+			c.logger.Error("Error converting data to int", zap.String("data", strVersion), zap.Error(err))
 			continue
 		}
 		cmd := FrankenCommand(intVersion)
@@ -37,7 +42,7 @@ func (c *PodConnection) connectToUnixSocket() {
 		case FrankenCmdDeviceStatus:
 			res, err := c.GetStatus()
 			if err != nil {
-				println("Error getting pod status:", err)
+				c.logger.Error("Error getting pod status", zap.Error(err))
 				continue
 			}
 			output := fmt.Sprintf(
@@ -58,7 +63,7 @@ func (c *PodConnection) connectToUnixSocket() {
 		case FrankenCmdLeftTempDur:
 			arg, err := strconv.Atoi(parts[1])
 			if err != nil {
-				println("Error converting left temp duration arg to int:", err)
+				c.logger.Error("Error converting left temp duration arg to int", zap.String("arg", parts[1]), zap.Error(err))
 				continue
 			}
 			c.SetTime(arg, BedSideLeft)
@@ -66,7 +71,7 @@ func (c *PodConnection) connectToUnixSocket() {
 		case FrankenCmdRightTempDur:
 			arg, err := strconv.Atoi(parts[1])
 			if err != nil {
-				println("Error converting right temp duration arg to int:", err)
+				c.logger.Error("Error converting right temp duration arg to int", zap.String("arg", parts[1]), zap.Error(err))
 				continue
 			}
 			c.SetTime(arg, BedSideRight)
@@ -74,7 +79,7 @@ func (c *PodConnection) connectToUnixSocket() {
 		case FrankenCmdTempLevelLeft:
 			arg, err := strconv.Atoi(parts[1])
 			if err != nil {
-				println("Error converting left temp level arg to int:", err)
+				c.logger.Error("Error converting left temp level arg to int", zap.String("arg", parts[1]), zap.Error(err))
 				continue
 			}
 			c.SetLevel(arg, BedSideLeft)
@@ -83,7 +88,7 @@ func (c *PodConnection) connectToUnixSocket() {
 		case FrankenCmdTempLevelRight:
 			arg, err := strconv.Atoi(parts[1])
 			if err != nil {
-				println("Error converting right temp level arg to int:", err)
+				c.logger.Error("Error converting right temp level arg to int", zap.String("arg", parts[1]), zap.Error(err))
 				continue
 			}
 			c.SetLevel(arg, BedSideRight)
@@ -110,7 +115,7 @@ func (c *PodConnection) connectToUnixSocket() {
 			_, _ = socket.Write([]byte("ok\n\n"))
 
 		default:
-			println("Unhandled FrankenCommand from unix socket:", intVersion)
+			c.logger.Warn("Unhandled FrankenCommand from unix socket", zap.Int("command", intVersion))
 		}
 	}
 }

@@ -3,12 +3,14 @@ package main
 import (
 	"EightSleepServer/LogServer"
 	"EightSleepServer/SparkServer"
+	"go.uber.org/zap"
 	"os"
 	"strconv"
 )
 
 func main() {
-	println("Starting server...")
+	logger, _ := zap.NewProduction()
+	logger.Info("Starting server...")
 	// start the logging server
 	logServer := LogServer.LogServer{}
 
@@ -22,7 +24,7 @@ func main() {
 	}
 	logPortInt, err := strconv.Atoi(logPort)
 	if err != nil {
-		panic(err)
+		logger.Panic("Invalid LOG_PORT", zap.String("LOG_PORT", logPort), zap.Error(err))
 	}
 	logSaveFiles := os.Getenv("LOG_SAVE_FILES")
 	logSaveBool := false
@@ -44,7 +46,7 @@ func main() {
 	}
 	sparkPortInt, err := strconv.Atoi(sparkPort)
 	if err != nil {
-		panic(err)
+		logger.Panic("Invalid SPARK_PORT", zap.String("SPARK_PORT", sparkPort), zap.Error(err))
 	}
 
 	server := SparkServer.NewServer(

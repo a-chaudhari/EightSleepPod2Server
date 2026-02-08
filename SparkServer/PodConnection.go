@@ -7,7 +7,6 @@ import (
 	"crypto/rsa"
 	"encoding/binary"
 	"errors"
-	"fmt"
 	"net"
 	"sync"
 	"time"
@@ -16,6 +15,7 @@ import (
 	"github.com/plgd-dev/go-coap/v3/message/codes"
 	"github.com/plgd-dev/go-coap/v3/message/pool"
 	"github.com/plgd-dev/go-coap/v3/udp/coder"
+	"go.uber.org/zap"
 )
 
 type PodConnection struct {
@@ -30,73 +30,70 @@ type PodConnection struct {
 	RequestPipe      chan *PodRequest
 	sendMutex        sync.Mutex
 	socketPath       string
+	logger           *zap.Logger
 }
 
 func NewPodConnection(conn *net.Conn, serverPublicKey *rsa.PrivateKey, socketPath string) *PodConnection {
+	logger, _ := zap.NewProduction()
 	return &PodConnection{conn: conn, serverPrivateKey: serverPublicKey, messageId: 0,
 		RequestPipe: make(chan *PodRequest, 100),
 		socketPath:  socketPath,
+		logger:      logger,
 	}
 }
 
 func (c *PodConnection) HandleConnection() {
 	err := c.performHandshake()
 	if err != nil {
-		println("Error performing handshake:", err)
+		c.logger.Error("Error performing handshake", zap.Error(err))
 		return
 	}
 
-	println("Handshake successful, Ready for further communication")
+	c.logger.Info("Handshake successful, Ready for further communication")
 	go c.podRequestHandler()
 
-	defer println("exiting client connection handler for", (*c.conn).RemoteAddr().String())
+	defer c.logger.Info("Exiting client connection handler", zap.String("remote_addr", (*c.conn).RemoteAddr().String()))
 
 	buf := make([]byte, 2048)
 	for {
 		n, err := (*c.conn).Read(buf)
 		if err != nil {
-			fmt.Println("Client disconnected:", (*c.conn).RemoteAddr().String())
+			c.logger.Info("Client disconnected", zap.String("remote_addr", (*c.conn).RemoteAddr().String()))
 			return
 		}
 		data := buf[:n]
-		//fmt.Printf("Received %d bytes of data\n", len(data))
 		// split up payload into msgs
 		messages, err := c.SplitMessages(data)
 		if err != nil {
-			fmt.Println("Error splitting messages:", err)
+			c.logger.Error("Error splitting messages", zap.Error(err))
 			return
 		}
 
 		// process each msg
 		for _, msg := range messages {
-			//fmt.Printf("Processing message: %x\n", msg)
 			coapmsg := pool.NewMessage(context.Background())
 			_, err := coapmsg.UnmarshalWithDecoder(coder.DefaultCoder, msg)
-			//println("CoAP Message:", coapmsg.String())
 			if err != nil {
 				return
 			}
 
 			url, err := coapmsg.Path()
 			if err != nil {
-				//println("Error getting path from message:", err)
 				url = "/"
 			}
 			if url == "/" && coapmsg.Type() == message.Confirmable {
 				err := c.handleKeepAlive(coapmsg)
 				if err != nil {
-					println("Error handling ping like:", err)
+					c.logger.Error("Error handling ping like", zap.Error(err))
 					return
 				}
 				continue
 			}
 			if coapmsg.Type() == message.Acknowledgement {
-				// this is a Response to an earlier request
 				if c.currentRequest != nil && coapmsg.MessageID() == c.currentRequest.message.MessageID {
-					//println("Received Response for current pod request")
 					body, err := coapmsg.ReadBody()
 					if err != nil {
-						println("Error reading body of pod Response:", err)
+						c.logger.Error("Error reading body of pod Response", zap.Error(err))
 						continue
 					}
 					cr := c.currentRequest
@@ -104,17 +101,17 @@ func (c *PodConnection) HandleConnection() {
 					cr.SetResponse(body)
 					continue
 				} else {
-					println("Received acknowledgement for unknown request, ignoring")
+					c.logger.Info("Received acknowledgement for unknown request, ignoring")
 					continue
 				}
 			}
 
 			switch url {
 			case "/h":
-				println("Hello received")
+				c.logger.Info("Hello received")
 				err := c.handleHello()
 				if err != nil {
-					println("error when sending hello Response", err)
+					c.logger.Error("Error when sending hello Response", zap.Error(err))
 					return
 				}
 				go c.connectToUnixSocket()
@@ -127,19 +124,17 @@ func (c *PodConnection) HandleConnection() {
 			case "/e/spark":
 				err := c.handleESpark(coapmsg)
 				if err != nil {
-					println("Error handling espark:", err)
+					c.logger.Error("Error handling espark", zap.Error(err))
 					return
 				}
 			case "/t":
 				err := c.handleTimestamp(coapmsg)
 				if err != nil {
-					println("Error handling timestamp:", err)
+					c.logger.Error("Error handling timestamp", zap.Error(err))
 					return
 				}
 			case "/E/tracing/rat":
 				// noop
-			default:
-				println("Unhandled message:", url)
 			}
 		}
 	}
@@ -159,7 +154,7 @@ func (c *PodConnection) SplitMessages(data []byte) ([][]byte, error) {
 		offset += 2
 
 		if offset+payloadLen > len(data) {
-			fmt.Printf("[DEBUG] Incomplete message, expected %d bytes\n", payloadLen)
+			c.logger.Debug("Incomplete message", zap.Int("expected_bytes", payloadLen))
 			break
 		}
 
@@ -168,7 +163,7 @@ func (c *PodConnection) SplitMessages(data []byte) ([][]byte, error) {
 
 		plaintext, err := c.decrypt(ciphertext)
 		if err != nil {
-			println("Error decrypting message:", err)
+			c.logger.Error("Error decrypting message", zap.Error(err))
 			return nil, err
 		}
 		messages = append(messages, plaintext)
@@ -262,7 +257,7 @@ func (c *PodConnection) handleHello() error {
 }
 
 func (c *PodConnection) handleESpark(incoming *pool.Message) error {
-	println("Handling e/spark")
+	c.logger.Info("Handling e/spark")
 	msg := message.Message{
 		Type:      message.Acknowledgement,
 		MessageID: incoming.MessageID(),
@@ -273,7 +268,7 @@ func (c *PodConnection) handleESpark(incoming *pool.Message) error {
 }
 
 func (c *PodConnection) handleTimestamp(incoming *pool.Message) error {
-	println("Handling timestamp")
+	c.logger.Info("Handling timestamp")
 	now := time.Now().Unix()
 	nowbytes := make([]byte, 4)
 	binary.BigEndian.PutUint32(nowbytes, uint32(now))
@@ -291,15 +286,15 @@ func (c *PodConnection) podRequestHandler() {
 	for {
 		select {
 		case req := <-c.RequestPipe:
-			//println("Received pod request")
+			//c.logger.Debug("Received pod request")
 			c.currentRequest = req
 			err := c.sendMessage(req.message)
 			if err != nil {
-				println("Error sending pod request Response:", err)
+				c.logger.Error("Error sending pod request Response", zap.Error(err))
 				continue
 			}
 			<-req.Ready // blocks until Response is Ready
-			//println("Pod request Response Ready")
+			//c.logger.Debug("Pod request Response Ready")
 		}
 	}
 }

@@ -9,7 +9,7 @@ import (
 	"crypto/sha1"
 	"crypto/x509"
 	"errors"
-	"fmt"
+	"go.uber.org/zap"
 	"math/big"
 )
 
@@ -20,17 +20,18 @@ type ClientResponse struct {
 }
 
 func (c *PodConnection) performHandshake() error {
+	logger := c.logger
 	// create random 40 byte slice
 	nonce, err := createNonce()
 	if err != nil {
-		fmt.Println("Error creating nonce:", err)
+		logger.Error("Error creating nonce", zap.Error(err))
 		return err
 	}
 
 	// send down wire
 	_, err = (*c.conn).Write(nonce)
 	if err != nil {
-		fmt.Println("Error sending nonce:", err)
+		logger.Error("Error sending nonce", zap.Error(err))
 		return err
 	}
 
@@ -38,7 +39,7 @@ func (c *PodConnection) performHandshake() error {
 	buf := make([]byte, 1024)
 	n, err := (*c.conn).Read(buf)
 	if err != nil {
-		fmt.Println("Error reading Response:", err)
+		logger.Error("Error reading Response", zap.Error(err))
 		return err
 	}
 	responsePayload := buf[:n]
@@ -46,49 +47,47 @@ func (c *PodConnection) performHandshake() error {
 	// try decrypting with private key
 	decryptedPayload, err := decryptWithServerRSA(responsePayload, c.serverPrivateKey)
 	if err != nil {
-		fmt.Println("Error decrypting payload:", err)
+		logger.Error("Error decrypting payload", zap.Error(err))
 		return err
 	}
 
-	//fmt.Printf("Decrypted Payload: %x\n", decryptedPayload)
 	response, err := parseClientHandshake(decryptedPayload)
 	if err != nil {
-		fmt.Println("Error parsing client handshake:", err)
+		logger.Error("Error parsing client handshake", zap.Error(err))
 		return err
 	}
 	c.deviceId = response.ClientDeviceKey
 
-	println("Client handshake received")
+	logger.Info("Client handshake received")
 	if !bytes.Equal(nonce, response.Nonce[:40]) {
-		println("Nonce mismatch")
+		logger.Error("Nonce mismatch")
 		return err
 	}
-	println("nonce matched")
+	logger.Info("Nonce matched")
 
 	// now need to create handshake Response
 	keybuffer, err := createNonce()
 	if err != nil {
-		println("Error creating key block:", err)
+		logger.Error("Error creating key block", zap.Error(err))
 		return err
 	}
 	c.aesCipher, err = aes.NewCipher(keybuffer[:16])
 	if err != nil {
-		println("Error creating AES cipher:", err)
+		logger.Error("Error creating AES cipher", zap.Error(err))
 		return err
 	}
 	c.incomingIv = [16]byte(keybuffer[16:32])
 	c.outgoingIv = c.incomingIv
-	//fmt.Printf("aes key: %h  iv: %x\n", aesKey, outgoingIv)
 
 	cyphertext, err := encryptWithClientRSA(keybuffer, response.ClientPublicKey)
 	if err != nil {
-		println("Error encrypting payload:", err)
+		logger.Error("Error encrypting payload", zap.Error(err))
 		return err
 	}
 
 	secondResponse, err := createHmacSignature(cyphertext, keybuffer, c.serverPrivateKey)
 	if err != nil {
-		println("cannot generate hmac", err)
+		logger.Error("Cannot generate hmac", zap.Error(err))
 		return err
 	}
 
@@ -99,7 +98,7 @@ func (c *PodConnection) performHandshake() error {
 
 	_, err = (*c.conn).Write(bigBlob)
 	if err != nil {
-		fmt.Println("Error writing Response:", err)
+		logger.Error("Error writing Response", zap.Error(err))
 		return err
 	}
 
@@ -190,7 +189,7 @@ func createHmacSignature(payload []byte, hmacKey []byte, signingKey *rsa.Private
 	encrypter := hmac.New(sha1.New, hmacKey)
 	_, err := encrypter.Write(payload)
 	if err != nil {
-		println("Error writing encrypted payload:", err)
+		zap.L().Error("Error writing encrypted payload", zap.Error(err))
 		return nil, err
 	}
 	hmacDigest := encrypter.Sum(nil)

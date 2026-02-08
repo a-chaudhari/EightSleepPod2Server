@@ -4,30 +4,33 @@ import (
 	"bufio"
 	"encoding/binary"
 	"fmt"
-	"log"
 	"net"
 	"os"
 	"strings"
 
 	"github.com/fxamacker/cbor/v2"
+	"go.uber.org/zap"
 )
 
 type LogServer struct {
 	state     state
 	saveFiles bool
 	filePath  string
+	logger    *zap.Logger
 }
 
 func (b LogServer) StartServer(saveFiles bool, filePath string, port int) {
-	println("Starting LogBlackhole server...")
+	logger, _ := zap.NewProduction()
+	b.logger = logger
 	b.state = StateClientHello
 	b.saveFiles = saveFiles
 	b.filePath = filePath
 
+	b.logger.Info("Starting LogBlackhole server", zap.Int("port", port))
 	portStr := fmt.Sprintf(":%d", port)
 	l, err := net.Listen("tcp4", portStr)
 	if err != nil {
-		log.Fatal(err)
+		b.logger.Panic("Failed to listen on port", zap.String("port", portStr), zap.Error(err))
 	}
 	defer func(l net.Listener) {
 		_ = l.Close()
@@ -36,17 +39,17 @@ func (b LogServer) StartServer(saveFiles bool, filePath string, port int) {
 	for {
 		c, err := l.Accept()
 		if err != nil {
-			fmt.Println(err)
+			b.logger.Error("Failed to accept connection", zap.Error(err))
 			return
 		}
 		b.handleConnection(c)
 		b.state = StateClientHello
-		println("Client disconnected, waiting for new connection...")
+		b.logger.Info("Client disconnected, waiting for new connection...")
 	}
 }
 
 func (b LogServer) handleConnection(c net.Conn) {
-	println("Client connected:", c.RemoteAddr().String())
+	b.logger.Info("Client connected", zap.String("remote_addr", c.RemoteAddr().String()))
 	defer func(c net.Conn) {
 		_ = c.Close()
 	}(c)
@@ -60,17 +63,17 @@ func (b LogServer) handleConnection(c net.Conn) {
 	for {
 		n, err := c.Read(buf)
 		if err != nil {
-			fmt.Println("Client disconnected:", c.RemoteAddr().String())
+			b.logger.Info("Client disconnected", zap.String("remote_addr", c.RemoteAddr().String()))
 			if b.saveFiles && osFile != nil {
 				err := file.Flush()
 				if err != nil {
-					fmt.Println("Error flushing file:", err)
+					b.logger.Error("Error flushing file", zap.Error(err))
 				}
 				err = osFile.Close()
 				if err != nil {
-					fmt.Println("Error closing file:", err)
+					b.logger.Error("Error closing file", zap.Error(err))
 				}
-				fmt.Println("Closed open file due to client disconnect.")
+				b.logger.Info("Closed open file due to client disconnect.")
 			}
 			return
 		}
@@ -80,7 +83,7 @@ func (b LogServer) handleConnection(c net.Conn) {
 			var req WelcomeMessage
 			err := cbor.Unmarshal(data, &req)
 			if err != nil {
-				fmt.Println("Error unmarshalling welcome message:", err)
+				b.logger.Error("Error unmarshalling welcome message", zap.Error(err))
 				continue
 			}
 			res := WelcomeResponse{
@@ -88,17 +91,16 @@ func (b LogServer) handleConnection(c net.Conn) {
 				Part:  "session",
 			}
 			handshakeResponse, err := cbor.Marshal(res)
-			// print hex response
 			if err != nil {
-				fmt.Println("Error marshalling handshake response:", err)
+				b.logger.Error("Error marshalling handshake response", zap.Error(err))
 				return
 			}
 			_, err = c.Write(handshakeResponse)
 			if err != nil {
-				fmt.Println("Error sending handshake response:", err)
+				b.logger.Error("Error sending handshake response", zap.Error(err))
 				return
 			}
-			fmt.Printf("Device Connected, ID: %s\n", req.DeviceId)
+			b.logger.Info("Device Connected", zap.String("device_id", req.DeviceId))
 			b.state = StateWaitingForStreamStart
 			continue
 		} else if b.state == StateWaitingForStreamStart {
@@ -107,24 +109,24 @@ func (b LogServer) handleConnection(c net.Conn) {
 			*/
 			stringVersion := string(data)
 			if len(data) != 38 || !strings.Contains(stringVersion, "eprotocrawdpartebatchbid") {
-				fmt.Println("Invalid batch start packet received")
+				b.logger.Error("Invalid batch start packet received")
 				continue
 			}
 			batchIdBytes := data[0x1a:0x1e]
 			batchId = binary.BigEndian.Uint32(batchIdBytes)
-			fmt.Printf("Batch Start ID: %x\n", batchIdBytes)
+			b.logger.Info("Batch Start", zap.Binary("batch_id_bytes", batchIdBytes))
 			fileName := fmt.Sprintf("%s/%08X.RAW", b.filePath, batchId)
 			if b.saveFiles {
 				// open file for writing
 				osFile, err = os.Create(fileName)
 				if err != nil {
-					fmt.Println("Error creating file:", err)
+					b.logger.Error("Error creating file", zap.Error(err))
 					return
 				}
 				file = bufio.NewWriter(osFile)
-				fmt.Printf("Receiving stream: %s\n", fileName)
+				b.logger.Info("Receiving stream", zap.String("file", fileName))
 			} else {
-				fmt.Printf("Receiving stream: %s. However not saving.\n", fileName)
+				b.logger.Info("Receiving stream (not saving)", zap.String("file", fileName))
 			}
 
 			b.state = StateReceivingStream
@@ -139,11 +141,11 @@ func (b LogServer) handleConnection(c net.Conn) {
 					//fmt.Printf("Adding %d bytes to file\n", len(record))
 					_, err := file.Write(record)
 					if err != nil {
-						fmt.Println("Error writing to file:", err)
+						b.logger.Error("Error writing to file", zap.Error(err))
 					}
 					err = file.Flush()
 					if err != nil {
-						fmt.Println("Error flushing file:", err)
+						b.logger.Error("Error flushing file", zap.Error(err))
 					}
 				}
 			}
@@ -152,25 +154,16 @@ func (b LogServer) handleConnection(c net.Conn) {
 					// close the file
 					err := file.Flush()
 					if err != nil {
-						fmt.Println("Error flushing file:", err)
+						b.logger.Error("Error flushing file", zap.Error(err))
 					}
 					err = osFile.Close()
 					if err != nil {
-						fmt.Println("Error closing file:", err)
+						b.logger.Error("Error closing file", zap.Error(err))
 					}
-					fmt.Println("Received end of file packet, closed file.")
 				}
-
-				ack := b.getFileAck(batchId)
-				_, err = c.Write(ack)
-				if err != nil {
-					fmt.Println("Error sending file ack response:", err)
-				}
-				fmt.Printf("Total bytes received for batch %08X: %d bytes\n", batchId, counter)
-				counter = 0
-				b.state = StateWaitingForStreamStart
+				b.logger.Info("Stream finished", zap.Uint32("batch_id", batchId), zap.Uint64("bytes_received", counter))
+				return
 			}
-			continue
 		}
 	}
 }
@@ -183,7 +176,7 @@ func (b LogServer) getFileAck(batchId uint32) []byte {
 	}
 	template, err := cbor.Marshal(res)
 	if err != nil {
-		fmt.Println("Error marshalling file ack response:", err)
+		b.logger.Error("Error marshalling file ack response", zap.Error(err))
 		return nil
 	}
 	return template

@@ -61,8 +61,8 @@ If you want serial output, you can also connect the TX pin to a USB to TTL Seria
 You can use `./pod_tools.sh console` to view the serial output with picocom
 
 ## Step 3 - Dump the Firmware
-Use `./pod_tools.sh dump firmware_backup.pin` to dump the firmware to a file named `firmware_backup.bin`
-Save a copy of this file somewhere safe! You must have it inorder to return to stock.
+Use `./pod_tools.sh dump firmware_backup.bin` to dump the firmware to a file named `firmware_backup.bin`
+Save a copy of this file somewhere safe! You must have it in order to return to stock.
 
 ## Step 4 - Modify the Firmware
 1. First copy the dumped firmware to a new file that will be modified. 

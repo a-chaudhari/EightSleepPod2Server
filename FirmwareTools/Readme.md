@@ -26,7 +26,9 @@ These tools will help modify the firmware of the Eight Sleep Pod 2 for local con
    4. Tag Connect adapter
       * https://www.digikey.com/en/products/detail/tag-connect-llc/TC2050-IDC/2605366
       * you can solder wires directly to the pod if you're brave
-   5. (optional) USB to TTL Serial adapter for debugging output
+   5. dupont male to female hookup wires
+      * https://a.co/d/04WGx90c
+   6. (optional) USB to TTL Serial adapter for debugging output
       * https://a.co/d/0dfrfaUu
 * Software Requirements
   * Server Computer

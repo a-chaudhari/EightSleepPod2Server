@@ -33,7 +33,7 @@ Lastly, the repo includes a docker-compose file that runs free-sleep in a simula
 * biometrics
 
 ## How to Use
-Follow the instructions in `FirmwareTools/Readme.md` to modify your pod
+Follow the instructions in [FirmwareTools/Readme.md](./FirmwareTools/Readme.md) to modify your pod
 
 ## Credits
 Big thank you to the following:

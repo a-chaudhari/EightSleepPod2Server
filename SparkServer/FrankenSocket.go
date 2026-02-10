@@ -16,7 +16,7 @@ func (c *PodConnection) connectToUnixSocket() {
 		c.processUnixSocket()
 		c.logger.Debug("Disconnected from unix socket, retrying in 5 seconds...")
 		// wait 5 seconds before trying to reconnect
-		time.After(5 * time.Second)
+		<-time.After(5 * time.Second)
 	}
 }
 

@@ -2,13 +2,25 @@ package SparkServer
 
 import (
 	"fmt"
-	"go.uber.org/zap"
 	"net"
 	"strconv"
 	"strings"
+	"time"
+
+	"go.uber.org/zap"
 )
 
 func (c *PodConnection) connectToUnixSocket() {
+	for {
+		c.logger.Debug("Connecting to unix socket")
+		c.processUnixSocket()
+		c.logger.Debug("Disconnected from unix socket, retrying in 5 seconds...")
+		// wait 5 seconds before trying to reconnect
+		time.After(5 * time.Second)
+	}
+}
+
+func (c *PodConnection) processUnixSocket() {
 	socket, err := net.Dial("unix", c.socketPath)
 	if err != nil {
 		c.logger.Error("Error connecting to FrankenSocket unix socket", zap.String("socketPath", c.socketPath), zap.Error(err))

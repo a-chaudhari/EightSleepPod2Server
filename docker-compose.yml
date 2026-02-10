@@ -3,8 +3,17 @@ services:
     build:
       context: .
       dockerfile: FreeSleep.Dockerfile
+    restart: unless-stopped
     ports:
         - "3000:3000/tcp"
+    labels:
+      autoheal-app: true
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/api/deviceStatus"]
+      interval: 30s
+      timeout: 10s
+      retries: 1
+      start_period: 2m
     volumes:
       - ./fs-persistent:/persistent
       - socket:/deviceinfo/
@@ -17,6 +26,7 @@ services:
         npm run start
 
   freesleep-stream:
+    restart: unless-stopped
     build:
       context: .
       dockerfile: FreeSleep.Dockerfile
@@ -29,6 +39,7 @@ services:
     command: python3 stream/stream.py
 
   pod-server:
+    restart: unless-stopped
     build:
       context: .
       dockerfile: ./Pod2.Dockerfile
@@ -45,6 +56,16 @@ services:
       - socket:/deviceinfo/
       - ./fs-persistent:/persistent
       - ./server_private_key.pem:/keys/server.pem:ro
+
+  autoheal:
+    environment:
+      AUTOHEAL_CONTAINER_LABEL: autoheal-app
+    image: willfarrell/autoheal:latest
+    network_mode: none
+    restart: always
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
+      - /var/run/docker.sock:/var/run/docker.sock
 
 volumes:
   socket:

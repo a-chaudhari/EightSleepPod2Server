@@ -4,6 +4,7 @@ services:
       context: .
       dockerfile: FreeSleep.Dockerfile
     restart: unless-stopped
+    container_name: freesleep-server
     ports:
         - "3000:3000/tcp"
     labels:
@@ -35,7 +36,7 @@ services:
     depends_on:
       - freesleep-server
     working_dir: /home/dac/free-sleep/biometrics
-    network_mode: service:freesleep-server
+    network_mode: container:freesleep-server
     command: python3 stream/stream.py
 
   pod-server:
